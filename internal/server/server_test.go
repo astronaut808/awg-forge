@@ -107,6 +107,24 @@ func TestWriteCachedJSONRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestPublicTunnelOmitsProtocolSecrets(t *testing.T) {
+	tunnel := config.Tunnel{
+		ID:                "tunnel-30",
+		Name:              "awg30",
+		InterfaceName:     "awg30",
+		ProtocolProfileID: "awg_3_0",
+		ProtocolParams:    config.ProtocolParams{"Jc": "4"},
+		ProtocolSecrets:   config.ProtocolSecrets{HeaderProtectionKey: "must-not-leak"},
+	}
+	payload, err := json.Marshal(publicTunnel(tunnel, app.TunnelStatus{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), "must-not-leak") || strings.Contains(string(payload), "header_protection_key") {
+		t.Fatalf("public tunnel leaked protocol secret: %s", payload)
+	}
+}
+
 func TestSecurityHeadersAllowOnlyImageBlobURLs(t *testing.T) {
 	w := &web{}
 	rr := httptest.NewRecorder()

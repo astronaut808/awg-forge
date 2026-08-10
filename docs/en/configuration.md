@@ -297,6 +297,31 @@ Existing client configs do not need to change when only egress mode changes, bec
 
 Doctor checks WARP runtime, policy rules, and WARP-aware firewall expectations for WARP-enabled tunnels.
 
+## AWG 3.0 laboratory profile
+
+AWG 3.0 is not part of the stable image or installer flow. It is an opt-in laboratory profile while upstream userspace, kernel, and client support are still changing. AWG 2.0 remains the default and supported production profile.
+
+The lab build pins compatible upstream source commits, forces AWG 3.0 through `amneziawg-go` userspace, and exposes the profile only when both the lab image and `AWG3_EXPERIMENTAL=true` are present. A normal image cannot enable AWG 3.0 merely by setting an environment variable.
+
+Build and start the lab image locally from the repository root:
+
+```bash
+make docker-build-awg3-lab
+docker compose -f docker-compose.yml -f docker-compose.awg3-lab.yml up -d --force-recreate
+```
+
+Use only downloaded `.conf` files for AWG 3.0 testing. AWG3 QR, `vpn://`, kernel-module runtime, and production interoperability claims are intentionally out of scope. Test the exact target client and platform before relying on a lab tunnel.
+
+To return to the stable image, remove every AWG3 tunnel in the UI first, then start the normal Compose file:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+If a lab tunnel remains after a rollback, the stable image starts without applying it and shows an explicit runtime error. Restore the lab image to export or remove that tunnel.
+
+`AWG3_EXPERIMENTAL` defaults to `false`. It is only effective in the locally built AWG3 lab image; setting it on a standard image does not expose the profile.
+
 ## APPLY_CONFIG
 
 When `APPLY_CONFIG=true`, mutating operations update state/config files and apply changes to runtime.

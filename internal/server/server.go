@@ -1315,6 +1315,14 @@ func (w *web) publicState(ctx context.Context, state config.State) map[string]an
 		status, _ := w.service.TunnelStatusByID(tunnel.ID)
 		tunnels = append(tunnels, publicTunnelWithFirewall(tunnel, status, firewallSummaryForTunnel(tunnel, firewallReport, firewallErr), runtime[tunnel.ID], traffic[tunnel.ID]))
 	}
+	profiles := []map[string]any{
+		profileMeta("awg_legacy_1_0", "1.0", "Legacy", true, state),
+		profileMeta("awg_1_5", "1.5", "Modern", true, state),
+		profileMeta("awg_2_0", "2.0", "Modern", true, state),
+	}
+	if w.cfg.AWG3Experimental && buildinfo.AWG3RuntimeEnabled() {
+		profiles = append(profiles, profileMeta("awg_3_0", "3.0", "Experimental", true, state))
+	}
 	return map[string]any{
 		"authenticated":       true,
 		"apply_enabled":       w.cfg.ApplyConfig,
@@ -1324,12 +1332,8 @@ func (w *web) publicState(ctx context.Context, state config.State) map[string]an
 		"tls":                 publicTLS(w.tls.ReadStatus(), w.cfg),
 		"build":               buildinfo.Current(),
 		"published_udp_ports": w.cfg.PublishedUDPPorts,
-		"profiles": []map[string]any{
-			profileMeta("awg_legacy_1_0", "1.0", "Legacy", true, state),
-			profileMeta("awg_1_5", "1.5", "Modern", true, state),
-			profileMeta("awg_2_0", "2.0", "Modern", true, state),
-		},
-		"tunnels": tunnels,
+		"profiles":            profiles,
+		"tunnels":             tunnels,
 	}
 }
 

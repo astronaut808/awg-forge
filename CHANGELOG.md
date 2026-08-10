@@ -5,6 +5,7 @@
 ### Added
 
 - Added an OpenAPI 3.1 browser control API contract for the stable tunnel, client, traffic-limit, and WARP control surface, with compatibility tests for the contract envelope.
+- Added an opt-in AWG 3.0 laboratory profile with pinned upstream userspace runtime sources, validated self-hosted `.conf` rendering, and explicit protection against enabling it in stable images.
 
 ### Changed
 

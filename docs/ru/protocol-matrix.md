@@ -9,12 +9,25 @@ awg-forge — запускатор и менеджер существующих 
 | `awg_legacy_1_0` | Реализован | Рендерит Legacy / 1.0 поля `Jc`, `Jmin`, `Jmax`, `S1`, `S2`, `H1-H4`. Defaults генерируются для обфускации, а не для WireGuard fallback. |
 | `awg_1_5` | Реализован | Добавляет `I1-I5` signature/masking packets в клиентские конфиги. Defaults включают DNS-like `I1` и небольшую CPS-цепочку для `I2-I5`. |
 | `awg_2_0` | Реализован | Использует `I1-I5`, добавляет `S3/S4`, поддерживает ranges для `H1-H4`, валидирует непересечение ranges и рендерит fresh configs. Defaults используют генерируемый QUIC Initial-like `I1`. `.conf` импорт проверен на desktop и iOS с совместимыми AmneziaVPN builds. |
+| `awg_3_0` | Только лабораторный | Доступен только в собранном локально AWG3 lab-образе при явном opt-in. Использует закрепленный userspace `amneziawg-go` и рендерит текущий self-hosted набор полей `.conf`, включая `HeaderProtectionKey` и AWG3 ranges. QR, `vpn://`, kernel-module runtime и production-совместимость намеренно не поддерживаются. |
 
 ## Запланировано
 
 | Профиль | Статус | Описание |
 | --- | --- | --- |
 | `custom` | Запланирован | Зарезервирован под пользовательские protocol params после стабилизации validation rules. |
+
+## Границы лабораторного AWG 3.0
+
+Лабораторный профиль AWG 3.0 построен по текущему self-hosted генератору AmneziaVPN и закрепленным исходным ревизиям `amneziawg-go` / `amneziawg-tools`. Он использует:
+
+- `Jc`, `Jmin`, `Jmax`, `S1-S4`, `H1-H4`, `I1-I5`;
+- `HeaderProtectionKey`, который генерируется один раз для туннеля и не попадает в публичный API;
+- `ContentPaddingAddition`, `RekeyAfterTime`, `RekeyTimeout`, `RejectAfterTime`, `KeepaliveTimeout`, `MaxHandshakeAttempts` и `PersistentKeepalive` как одиночные значения либо возрастающие диапазоны `uint16`.
+
+Значения по умолчанию повторяют upstream-генератор клиента. AWG3 parsing закрепленных tools принимает расширенные ranges как `uint16`; awg-forge отклоняет значения выше `65535`, а не допускает их последующее усечение upstream. При включенном header protection `S1-S4` должны быть не меньше `12`.
+
+AWG3 принудительно запускается через закрепленный userspace runtime. Не используй его с kernel module, не считай его совместимым со всеми сборками клиента и не включай QR или native JSON import, пока эти форматы не будут независимо проверены.
 
 ## AWG 2.0
 

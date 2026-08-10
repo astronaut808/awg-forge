@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/astronaut808/awg-forge/internal/app"
+	"github.com/astronaut808/awg-forge/internal/buildinfo"
 	"github.com/astronaut808/awg-forge/internal/config"
 	"github.com/astronaut808/awg-forge/internal/protocol"
 	"github.com/astronaut808/awg-forge/internal/storage"
@@ -543,6 +545,106 @@ func TestCreateAWG20TunnelAndClient(t *testing.T) {
 		if !strings.Contains(conf, want) {
 			t.Fatalf("AWG 2.0 client config missing %q:\n%s", want, conf)
 		}
+	}
+}
+
+func TestAWG3RequiresExplicitExperimentalFlag(t *testing.T) {
+	enableAWG3RuntimeForTest(t)
+	cfg := testConfig(t)
+	svc := app.New(cfg)
+	if _, err := svc.CreateTunnel("awg_3_0", "awg30", "10.30.0.0/24", 51840); err == nil {
+		t.Fatal("expected AWG3 creation without AWG3_EXPERIMENTAL to fail")
+	}
+
+	cfg.AWG3Experimental = true
+	svc = app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3_0", "awg30", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tunnel.ProtocolSecrets.HeaderProtectionKey == "" {
+		t.Fatal("AWG3 tunnel is missing HeaderProtectionKey")
+	}
+}
+
+func TestAWG3ProtocolUpdatePreservesAndRegeneratesHeaderProtectionKey(t *testing.T) {
+	enableAWG3RuntimeForTest(t)
+	cfg := testConfig(t)
+	cfg.AWG3Experimental = true
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3_0", "awg30", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "phone30")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialKey := tunnel.ProtocolSecrets.HeaderProtectionKey
+	params := maps.Clone(tunnel.ProtocolParams)
+	params["RekeyTimeout"] = "4-7"
+	if err := svc.UpdateTunnelProtocol(tunnel.ID, "awg_3_0", params); err != nil {
+		t.Fatal(err)
+	}
+	state, err := svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := state.Tunnels[1]
+	if got := updated.ProtocolSecrets.HeaderProtectionKey; got != initialKey {
+		t.Fatal("ordinary AWG3 protocol update changed HeaderProtectionKey")
+	}
+	if updated.Clients[0].ID != client.ID || updated.Clients[0].ConfigRevision >= updated.ConfigRevision {
+		t.Fatal("AWG3 protocol update did not mark client config stale")
+	}
+	if err := svc.RegenerateTunnelProtocol(tunnel.ID, "awg_3_0"); err != nil {
+		t.Fatal(err)
+	}
+	state, err = svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Tunnels[1].ProtocolSecrets.HeaderProtectionKey; got == initialKey || got == "" {
+		t.Fatal("AWG3 regeneration did not rotate HeaderProtectionKey")
+	}
+	if err := svc.UpdateTunnelProtocol(tunnel.ID, "awg_2_0", config.ProtocolParams{}); err != nil {
+		t.Fatal(err)
+	}
+	state, err = svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Tunnels[1].ProtocolSecrets.HeaderProtectionKey; got != "" {
+		t.Fatalf("AWG2 tunnel retained AWG3 HeaderProtectionKey: %q", got)
+	}
+}
+
+func TestRenderAllSkipsAWG3WhenLabRuntimeIsUnavailable(t *testing.T) {
+	enableAWG3RuntimeForTest(t)
+	cfg := testConfig(t)
+	cfg.AWG3Experimental = true
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3_0", "awg30", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(cfg.ConfigDir, "tunnels", tunnel.InterfaceName)); err != nil {
+		t.Fatal(err)
+	}
+
+	buildinfo.AWG3Runtime = "false"
+	if err := svc.RenderAll(); err != nil {
+		t.Fatalf("RenderAll returned an error instead of preserving operator recovery: %v", err)
+	}
+	state, err := svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Tunnels[1].LastApplyError; !strings.Contains(got, "lab runtime is unavailable") {
+		t.Fatalf("AWG3 unavailable state = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.ConfigDir, "tunnels", tunnel.InterfaceName, "server.conf")); !os.IsNotExist(err) {
+		t.Fatalf("AWG3 config was rendered without its lab runtime: %v", err)
 	}
 }
 
@@ -1285,4 +1387,11 @@ func testConfig(t *testing.T) config.Config {
 		MTU:                 1420,
 		ProtocolProfile:     "awg_legacy_1_0",
 	}
+}
+
+func enableAWG3RuntimeForTest(t *testing.T) {
+	t.Helper()
+	previous := buildinfo.AWG3Runtime
+	buildinfo.AWG3Runtime = "true"
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previous })
 }

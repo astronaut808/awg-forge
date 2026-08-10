@@ -9,12 +9,25 @@ awg-forge is a launcher and manager for existing AmneziaWG implementations. It d
 | `awg_legacy_1_0` | Implemented | Renders AmneziaWG Legacy / 1.0 config fields: `Jc`, `Jmin`, `Jmax`, `S1`, `S2`, `H1`, `H2`, `H3`, `H4`. Defaults are generated for obfuscation, not WireGuard fallback. |
 | `awg_1_5` | Implemented | Adds `I1-I5` signature/masking packets to client configs. Defaults include the official DNS-like `I1` conversion packet plus small generated runtime-random signature packets for `I2-I5`. |
 | `awg_2_0` | Implemented | Uses `I1-I5`, adds `S3` and `S4`, supports `H1-H4` ranges, validates non-overlapping header ranges, and renders fresh tunnel/client configs. Defaults use a generated QUIC Initial-like `I1` CPS signature. `.conf` import has been validated on desktop and iOS clients with compatible AmneziaVPN builds. |
+| `awg_3_0` | Laboratory only | Available only in the locally built AWG3 lab image with explicit opt-in. It uses pinned `amneziawg-go` userspace and renders the current self-hosted `.conf` field set, including `HeaderProtectionKey` and AWG3 ranges. QR, `vpn://`, kernel-module runtime, and production compatibility are intentionally not supported. |
 
 ## Planned, Not Implemented
 
 | Profile | Status | Notes |
 | --- | --- | --- |
 | `custom` | Planned | Reserved for explicit user-provided config parameters after validation rules are clear. |
+
+## AWG 3.0 Laboratory Boundaries
+
+The AWG 3.0 laboratory profile is derived from the current AmneziaVPN self-hosted generator and the pinned `amneziawg-go` / `amneziawg-tools` source revisions. It uses:
+
+- `Jc`, `Jmin`, `Jmax`, `S1-S4`, `H1-H4`, `I1-I5`;
+- `HeaderProtectionKey` generated once per tunnel and kept out of the public API;
+- `ContentPaddingAddition`, `RekeyAfterTime`, `RekeyTimeout`, `RejectAfterTime`, `KeepaliveTimeout`, `MaxHandshakeAttempts`, and `PersistentKeepalive` as scalar or ascending `uint16` ranges.
+
+The default values mirror the upstream client generator. AWG3 config parsing in the pinned tools accepts the extended ranges as `uint16`; awg-forge rejects values above `65535` rather than allowing upstream truncation. `S1-S4` must be at least `12` when header protection is enabled.
+
+AWG3 is forced through the pinned userspace runtime. Do not use it with the kernel module, do not assume compatibility with every client build, and do not enable QR or native JSON imports until those formats have been validated independently.
 
 ## Source Findings For AWG 2.0
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/astronaut808/awg-forge/internal/config"
+	"github.com/astronaut808/awg-forge/internal/protocol"
 	"github.com/astronaut808/awg-forge/internal/render"
 )
 
@@ -146,6 +147,54 @@ func TestAutoMTUIsOmitted(t *testing.T) {
 	}
 	if strings.Contains(clientConfig, "\nMTU = ") {
 		t.Fatalf("client config should omit auto MTU:\n%s", clientConfig)
+	}
+}
+
+func TestAWG30RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
+	state := testState(true)
+	params, err := (protocol.AWG30{}).GenerateDefaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Tunnels[0].ProtocolProfileID = "awg_3_0"
+	state.Tunnels[0].ProtocolParams = params
+	state.Tunnels[0].ProtocolSecrets.HeaderProtectionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+	serverConfig, err := render.ServerConfig(state, state.Tunnels[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"HeaderProtectionKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		"ContentPaddingAddition = 10-100",
+		"MaxHandshakeAttempts = 15-20",
+		"# I1 = <r 2><b 0x8580",
+	} {
+		if !strings.Contains(serverConfig, want) {
+			t.Fatalf("server config missing %q:\n%s", want, serverConfig)
+		}
+	}
+	if strings.Contains(serverConfig, "\nI1 = ") || strings.Contains(serverConfig, "PersistentKeepalive = 25-35") {
+		t.Fatalf("server config contains client-only AWG3 values:\n%s", serverConfig)
+	}
+
+	clientConfig, err := render.ClientConfig(state, state.Tunnels[0], state.Tunnels[0].Clients[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"I1 = <r 2><b 0x8580",
+		"HeaderProtectionKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		"PersistentKeepalive = 25-35",
+	} {
+		if !strings.Contains(clientConfig, want) {
+			t.Fatalf("client config missing %q:\n%s", want, clientConfig)
+		}
+	}
+	for _, key := range []string{"I2", "I3", "I4", "I5"} {
+		if strings.Contains(clientConfig, "\n"+key+" = ") || strings.Contains(serverConfig, "# "+key+" = ") {
+			t.Fatalf("empty %s should be omitted", key)
+		}
 	}
 }
 

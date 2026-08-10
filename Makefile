@@ -1,7 +1,7 @@
 COMPOSE ?= docker compose
 CONTAINER ?= awg-forge
 
-.PHONY: test test-shell vet build lint-go lint-js quality ui-build ui-check api-contract ci security security-fast updates updates-local updates-docker update-amneziawg-refs docker-build docker-up docker-down
+.PHONY: test test-shell vet build lint-go lint-js quality ui-build ui-check api-contract ci security security-fast updates updates-local updates-docker update-amneziawg-refs docker-build docker-build-awg3-lab docker-up docker-up-awg3-lab docker-down
 
 test:
 	go test ./...
@@ -63,8 +63,18 @@ update-amneziawg-refs:
 docker-build:
 	docker build -t awg-forge:local .
 
+docker-build-awg3-lab:
+	set -a; . ./build/amneziawg.awg3.refs; set +a; docker build \
+		--build-arg AWG3_RUNTIME=true \
+		--build-arg AMNEZIAWG_GO_REF_OVERRIDE="$$AMNEZIAWG_GO_REF" \
+		--build-arg AMNEZIAWG_TOOLS_REF_OVERRIDE="$$AMNEZIAWG_TOOLS_REF" \
+		-t awg-forge:awg3-lab .
+
 docker-up:
 	$(COMPOSE) up -d
+
+docker-up-awg3-lab:
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.awg3-lab.yml up -d --force-recreate
 
 docker-down:
 	$(COMPOSE) down

@@ -219,7 +219,27 @@ func (s *Service) renderAllLocked() error {
 	if err != nil {
 		return err
 	}
+	changed := false
+	for idx := range state.Tunnels {
+		tunnel := &state.Tunnels[idx]
+		if tunnel.ProtocolProfileID != "awg_3_0" || s.profileAvailable(tunnel.ProtocolProfileID) {
+			continue
+		}
+		tunnel.LastApplyError = "AWG 3.0 lab runtime is unavailable; restore the lab image or remove this tunnel"
+		tunnel.UpdatedAt = time.Now().UTC()
+		changed = true
+		s.log("warn", "tunnel.apply.skipped", "AWG 3.0 tunnel skipped because the lab runtime is unavailable", tunnelAuditFields(*tunnel), nil)
+	}
+	if changed {
+		state.UpdatedAt = time.Now().UTC()
+		if err := s.store.Save(state); err != nil {
+			return err
+		}
+	}
 	for _, tunnel := range state.Tunnels {
+		if tunnel.ProtocolProfileID == "awg_3_0" && !s.profileAvailable(tunnel.ProtocolProfileID) {
+			continue
+		}
 		if err := s.renderTunnelLocked(tunnel.ID, false); err != nil {
 			return err
 		}
@@ -362,8 +382,15 @@ func (s *Service) UpdateProtocol(profileID string, params config.ProtocolParams)
 }
 
 func (s *Service) UpdateTunnelProtocol(tunnelID, profileID string, params config.ProtocolParams) error {
+	return s.updateTunnelProtocol(tunnelID, profileID, params, false)
+}
+
+func (s *Service) updateTunnelProtocol(tunnelID, profileID string, params config.ProtocolParams, regenerateSecrets bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.profileAvailable(profileID) {
+		return fmt.Errorf("unsupported protocol profile %q", profileID)
+	}
 	p, ok := protocol.ByID(profileID)
 	if !ok {
 		return fmt.Errorf("unsupported protocol profile %q", profileID)
@@ -380,9 +407,6 @@ func (s *Service) UpdateTunnelProtocol(tunnelID, profileID string, params config
 			params[key] = value
 		}
 	}
-	if err := p.Validate(params); err != nil {
-		return err
-	}
 	state, err := s.initLocked()
 	if err != nil {
 		return err
@@ -391,6 +415,21 @@ func (s *Service) UpdateTunnelProtocol(tunnelID, profileID string, params config
 	if !ok {
 		return errors.New("tunnel not found")
 	}
+	secrets := state.Tunnels[idx].ProtocolSecrets
+	if _, usesSecrets := p.(protocol.SecretGeneratingProfile); !usesSecrets {
+		secrets = config.ProtocolSecrets{}
+	} else if state.Tunnels[idx].ProtocolProfileID != profileID || regenerateSecrets {
+		secrets, err = protocol.GenerateSecrets(p)
+		if err != nil {
+			return err
+		}
+	}
+	if err := p.Validate(params); err != nil {
+		return err
+	}
+	if err := protocol.ValidateSecrets(p, secrets); err != nil {
+		return err
+	}
 	previousState, err := cloneState(state)
 	if err != nil {
 		return err
@@ -398,6 +437,7 @@ func (s *Service) UpdateTunnelProtocol(tunnelID, profileID string, params config
 	now := time.Now().UTC()
 	state.Tunnels[idx].ProtocolProfileID = profileID
 	state.Tunnels[idx].ProtocolParams = params
+	state.Tunnels[idx].ProtocolSecrets = secrets
 	state.Tunnels[idx].ConfigRevision++
 	state.Tunnels[idx].UpdatedAt = now
 	state.UpdatedAt = now
@@ -427,6 +467,9 @@ func (s *Service) RegenerateProtocol(profileID string) error {
 }
 
 func (s *Service) RegenerateTunnelProtocol(tunnelID, profileID string) error {
+	if !s.profileAvailable(profileID) {
+		return fmt.Errorf("unsupported protocol profile %q", profileID)
+	}
 	p, ok := protocol.ByID(profileID)
 	if !ok {
 		return fmt.Errorf("unsupported protocol profile %q", profileID)
@@ -435,7 +478,7 @@ func (s *Service) RegenerateTunnelProtocol(tunnelID, profileID string) error {
 	if err != nil {
 		return err
 	}
-	return s.UpdateTunnelProtocol(tunnelID, profileID, params)
+	return s.updateTunnelProtocol(tunnelID, profileID, params, true)
 }
 
 func tunnelAuditFields(tunnel config.Tunnel) map[string]any {

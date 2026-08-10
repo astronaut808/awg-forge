@@ -53,6 +53,9 @@ func (s *Service) createInitialState(options InitOptions) (config.State, error) 
 	if err != nil {
 		return config.State{}, err
 	}
+	if !s.profileAvailable(spec.ProfileID) {
+		return config.State{}, fmt.Errorf("unsupported protocol profile %q", spec.ProfileID)
+	}
 	now := time.Now().UTC()
 	secret, err := s.sessionSecretValue()
 	if err != nil {
@@ -268,7 +271,10 @@ func (s *Service) repairProtocolParams(tunnel *config.Tunnel) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("unsupported protocol profile %q", tunnel.ProtocolProfileID)
 	}
-	if err := p.Validate(tunnel.ProtocolParams); err == nil {
+	if err := p.Validate(tunnel.ProtocolParams); err == nil && protocol.ValidateSecrets(p, tunnel.ProtocolSecrets) == nil {
+		return false, nil
+	}
+	if _, hasSecrets := p.(protocol.SecretGeneratingProfile); hasSecrets {
 		return false, nil
 	}
 	params, err := p.GenerateDefaults()

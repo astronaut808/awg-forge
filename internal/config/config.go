@@ -35,6 +35,7 @@ type Config struct {
 	PersistentKeepalive    int
 	MTU                    int
 	ProtocolProfile        string
+	AWG3Experimental       bool
 	ApplyConfig            bool
 	PublishedUDPPorts      string
 	TunnelUDPPortRange     string
@@ -74,6 +75,7 @@ func FromEnv() (Config, error) {
 		PersistentKeepalive:    getenvInt("PERSISTENT_KEEPALIVE", 0),
 		MTU:                    getenvInt("MTU", 0),
 		ProtocolProfile:        getenv("PROTOCOL_PROFILE", "awg_2_0"),
+		AWG3Experimental:       getenvBool("AWG3_EXPERIMENTAL", false),
 		ApplyConfig:            getenvBool("APPLY_CONFIG", false),
 		PublishedUDPPorts:      os.Getenv("PUBLISHED_UDP_PORTS"),
 		TunnelUDPPortRange:     os.Getenv("TUNNEL_UDP_PORT_RANGE"),

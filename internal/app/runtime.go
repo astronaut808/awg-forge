@@ -231,7 +231,7 @@ func (s *Service) apply(tunnel config.Tunnel) error {
 		return err
 	}
 	if err := exec.Command("ip", "link", "show", tunnel.InterfaceName).Run(); err != nil {
-		if err := runAWGQuick("up", tunnel.InterfaceName); err != nil {
+		if err := runAWGQuickForTunnel(tunnel, "up", tunnel.InterfaceName); err != nil {
 			return err
 		}
 		return s.ensureFirewallRules(tunnel)
@@ -509,11 +509,49 @@ func byteDelta(before, after uint64) uint64 {
 }
 
 func runAWGQuick(args ...string) error {
-	err := exec.Command("awg-quick", args...).Run()
+	return runAWGQuickWithEnv(nil, args...)
+}
+
+func runAWGQuickForTunnel(tunnel config.Tunnel, args ...string) error {
+	if tunnel.ProtocolProfileID != "awg_3_0" {
+		return runAWGQuick(args...)
+	}
+	return runAWGQuickWithEnv([]string{"AWG_QUICK_FORCE_USERSPACE=1"}, args...)
+}
+
+func runAWGQuickWithEnv(extraEnv []string, args ...string) error {
+	cmd := exec.Command("awg-quick", args...)
+	if len(extraEnv) > 0 {
+		cmd.Env = mergedEnv(os.Environ(), extraEnv)
+	}
+	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("awg-quick %s failed: %w", strings.Join(args, " "), err)
 	}
 	return nil
+}
+
+func mergedEnv(base, overrides []string) []string {
+	result := append([]string(nil), base...)
+	for _, override := range overrides {
+		key, _, ok := strings.Cut(override, "=")
+		if !ok {
+			continue
+		}
+		prefix := key + "="
+		replaced := false
+		for idx, value := range result {
+			if strings.HasPrefix(value, prefix) {
+				result[idx] = override
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			result = append(result, override)
+		}
+	}
+	return result
 }
 
 func runtimeConfigHasLegacyFirewallRules(path string, tunnel config.Tunnel) (bool, error) {

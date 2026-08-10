@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/astronaut808/awg-forge/internal/config"
 )
 
 func TestRuntimeFieldsExcludeClientIdentity(t *testing.T) {
@@ -39,5 +41,18 @@ func TestRunAWGQuickDoesNotReturnCommandOutput(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "do-not-log") || strings.Contains(err.Error(), "PrivateKey") {
 		t.Fatalf("command output leaked through error: %v", err)
+	}
+}
+
+func TestRunAWGQuickForAWG3ForcesUserspace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "awg-quick")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n[ \"$AWG_QUICK_FORCE_USERSPACE\" = 1 ]\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("AWG_QUICK_FORCE_USERSPACE", "")
+	if err := runAWGQuickForTunnel(config.Tunnel{ProtocolProfileID: "awg_3_0"}, "up", "awg30"); err != nil {
+		t.Fatal(err)
 	}
 }
