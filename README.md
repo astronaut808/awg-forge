@@ -1,3 +1,5 @@
+
+
 # AWG-Forge
 
 [English README](README.en.md)
@@ -160,7 +162,7 @@ APPLY_CONFIG=false \
 go run ./cmd/awg-forge serve
 ```
 
-Runtime и Docker image не требуют Node/npm. Web UI собирается из `web/` через Vite/Preact/TypeScript и встраивается в Go-бинарь как статические файлы.
+Runtime и Docker image не требуют Node/npm. Web UI собирается из `web/` через Vite/Preact/TypeScript и встраивается в Go-бинарь как статические файлы. Перед запуском убедитесь, что UI собран: `npm run ui:build`.
 
 ## Поддержать проект
 
