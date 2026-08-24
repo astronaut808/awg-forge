@@ -35,6 +35,7 @@ import (
 
 	"github.com/astronaut808/awg-forge/internal/app"
 	"github.com/astronaut808/awg-forge/internal/backup"
+	"github.com/astronaut808/awg-forge/internal/buildinfo"
 	"github.com/astronaut808/awg-forge/internal/config"
 	"github.com/astronaut808/awg-forge/internal/firewall"
 	"github.com/astronaut808/awg-forge/internal/observability"
@@ -109,10 +110,10 @@ func TestWriteCachedJSONRejectsInvalidJSON(t *testing.T) {
 
 func TestPublicTunnelOmitsProtocolSecrets(t *testing.T) {
 	tunnel := config.Tunnel{
-		ID:                "tunnel-30",
-		Name:              "awg30",
-		InterfaceName:     "awg30",
-		ProtocolProfileID: "awg_3_0",
+		ID:                "tunnel-3",
+		Name:              "awg3",
+		InterfaceName:     "awg3",
+		ProtocolProfileID: "awg_3",
 		ProtocolParams:    config.ProtocolParams{"Jc": "4"},
 		ProtocolSecrets:   config.ProtocolSecrets{HeaderProtectionKey: "must-not-leak"},
 	}
@@ -1364,6 +1365,81 @@ func TestAmneziaVPNQRSeriesReturnsSingleChunk(t *testing.T) {
 	}
 	if payload.Chunks != 1 {
 		t.Fatalf("chunks = %d, want 1", payload.Chunks)
+	}
+}
+
+func TestAWG3ClientExportAPIsRejectUnverifiedFormats(t *testing.T) {
+	previousRuntime := buildinfo.AWG3Runtime
+	buildinfo.AWG3Runtime = "true"
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
+
+	cfg := config.Config{
+		ConfigDir:           t.TempDir(),
+		TunnelName:          "awg0",
+		ServerHost:          "vpn.example.com",
+		ListenPort:          51820,
+		WebUIHost:           "127.0.0.1",
+		WebUIPort:           51821,
+		ExternalInterface:   "eth0",
+		IPv4Subnet:          "10.8.0.0/24",
+		DNS:                 "1.1.1.1",
+		AllowedIPs:          "0.0.0.0/0",
+		PersistentKeepalive: 0,
+		MTU:                 1420,
+		ProtocolProfile:     "awg_legacy_1_0",
+		AWG3Experimental:    true,
+	}
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "Phone 3.x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &web{service: svc}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		handle func(http.ResponseWriter, *http.Request, string)
+	}{
+		{name: "raw conf QR", method: http.MethodGet, path: "/api/clients/" + client.ID + "/qr", handle: w.clientQRAPI},
+		{name: "AmneziaVPN QR", method: http.MethodGet, path: "/api/clients/" + client.ID + "/amnezia-vpn-qr", handle: w.clientAmneziaVPNQRAPI},
+		{name: "AmneziaVPN QR series", method: http.MethodGet, path: "/api/clients/" + client.ID + "/amnezia-vpn-qr-series", handle: w.clientAmneziaVPNQRSeriesAPI},
+		{name: "vpn import key", method: http.MethodPost, path: "/api/clients/" + client.ID + "/import-key", handle: w.clientImportKeyAPI},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.method == http.MethodPost {
+				r.Header.Set("Origin", "http://example.com")
+			}
+			rw := httptest.NewRecorder()
+			tt.handle(rw, r, client.ID)
+			if got, want := rw.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("status = %d body = %s, want %d", got, rw.Body.String(), want)
+			}
+			var response apiErrorResponse
+			if err := json.Unmarshal(rw.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := response.Code, "unsupported_client_export_format"; got != want {
+				t.Fatalf("error code = %q, want %q", got, want)
+			}
+		})
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/clients/config/"+client.ID, nil)
+	rw := httptest.NewRecorder()
+	w.clientConfig(rw, r)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf(".conf status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	if !strings.Contains(rw.Body.String(), "HeaderProtectionKey =") {
+		t.Fatal("AWG3 .conf response is missing HeaderProtectionKey")
 	}
 }
 

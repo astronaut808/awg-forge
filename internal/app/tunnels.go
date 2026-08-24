@@ -181,8 +181,8 @@ func SuggestedTunnelSpec(profileID string) (name string, port int, subnet string
 		return "awg15", 51825, "10.15.0.0/24"
 	case "awg_2_0":
 		return "awg20", 51830, "10.20.0.0/24"
-	case "awg_3_0":
-		return "awg30", 51840, "10.30.0.0/24"
+	case "awg_3":
+		return "awg3", 51840, "10.30.0.0/24"
 	default:
 		return "awg0", 51820, "10.8.0.0/24"
 	}
@@ -709,11 +709,23 @@ func (s *Service) newTunnel(spec tunnelSpec) (config.Tunnel, error) {
 }
 
 func (s *Service) profileAvailable(profileID string) bool {
-	if profileID == "awg_3_0" {
+	switch profileID {
+	case "awg_3":
 		return s.cfg.AWG3Experimental && buildinfo.AWG3RuntimeEnabled()
 	}
 	_, ok := protocol.ByID(profileID)
 	return ok
+}
+
+func isAWG3Profile(profileID string) bool {
+	return profileID == "awg_3"
+}
+
+func profileDisplayName(profileID string) string {
+	if profile, ok := protocol.ByID(profileID); ok {
+		return profile.DisplayName()
+	}
+	return profileID
 }
 
 func tunnelConfigChanged(old, next config.Tunnel) bool {

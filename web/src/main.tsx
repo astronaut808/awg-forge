@@ -537,7 +537,10 @@ function ModalContent({ modal, state, notify, close, reload, runAction }: {
   if (modal.kind === "protocol") return <ProtocolForm tunnel={modal.tunnel} runAction={runAction} />;
   if (modal.kind === "create-client") return <CreateClientForm tunnel={modal.tunnel} trafficLimitsEnabled={state.database.enabled} runAction={runAction} />;
   if (modal.kind === "client-settings") return <ClientSettingsForm client={modal.client} runAction={runAction} />;
-  if (modal.kind === "client-config") return <ClientConfigPanel client={modal.client} notify={notify} />;
+  if (modal.kind === "client-config") {
+    const tunnel = state.tunnels.find((candidate) => candidate.id === modal.client.tunnel_id);
+    return <ClientConfigPanel client={modal.client} confOnly={tunnel?.profile === "awg_3"} notify={notify} />;
+  }
   if (modal.kind === "delete-tunnel") return <DeleteTunnelConfirmation tunnel={modal.tunnel} close={close} runAction={runAction} />;
   return <MaintenanceCenter state={state} notify={notify} close={close} reload={reload} />;
 }
@@ -660,7 +663,10 @@ function ProtocolForm({ tunnel, runAction }: { tunnel: Tunnel; runAction: (label
     for (const item of tunnel.params) params[item.key] = field(form, item.key).trim();
     return runAction(m.forms.protocolSaved, () => api.updateProtocol(tunnel.id, tunnel.profile, params));
   }}>
-    {tunnel.params.map((item) => item.key.startsWith("I") ? (
+    {tunnel.profile === "awg_3" && <p class="form-note">{m.forms.awg3Warning}</p>}
+    {tunnel.params.map((item) => item.key === "RandomTrailers" || item.key === "DisableCookies" ? (
+      <label key={item.key}>{item.key}<select aria-label={item.key} name={item.key} defaultValue={item.value || "off"}><option value="off">off</option><option value="on">on</option></select></label>
+    ) : item.key.startsWith("I") ? (
       <label key={item.key}>{item.key}<textarea aria-label={item.key} name={item.key} defaultValue={item.value || ""} /></label>
     ) : (
       <label key={item.key}>{item.key}<input aria-label={item.key} name={item.key} defaultValue={item.value || ""} /></label>
@@ -758,7 +764,7 @@ function ExpirationField({ current, keepCurrent = false }: { current?: string; k
   </>;
 }
 
-function ClientConfigPanel({ client, notify }: { client: Client; notify: (message: string) => void }) {
+function ClientConfigPanel({ client, confOnly, notify }: { client: Client; confOnly: boolean; notify: (message: string) => void }) {
   const { m } = useI18n();
   const notifyRef = useRef(notify);
   const qrImageURLsRef = useRef<Record<string, string>>({});
@@ -811,6 +817,7 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
   }, [client.id]);
 
   useEffect(() => {
+    if (confOnly) return;
     let cancelled = false;
     setVPNQRChunks(1);
     setVPNQRChunk(0);
@@ -823,9 +830,10 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
     return () => {
       cancelled = true;
     };
-  }, [client.id]);
+  }, [client.id, confOnly]);
 
   useEffect(() => {
+    if (confOnly) return;
     if (qrImageURLs[activeQRKey] || failedQRKeys[activeQRKey]) return;
 
     let cancelled = false;
@@ -853,7 +861,7 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
       cancelled = true;
       controller.abort();
     };
-  }, [activeQRKey, activeQRRequestURL, failedQRKeys, qrImageURLs]);
+  }, [activeQRKey, activeQRRequestURL, confOnly, failedQRKeys, qrImageURLs]);
 
   useEffect(() => {
     if (!expandedQR) return;
@@ -907,7 +915,7 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
 
   return <PanelTitle title={m.clientConfig.title} subtitle={`${client.name} · ${client.address}`}>
     <div class="config-options">
-      <section class="config-option qr-config-option">
+      {!confOnly && <section class="config-option qr-config-option">
         <div>
           <h3>{activeQRTitle}</h3>
           <p>{activeQRDescription}</p>
@@ -935,22 +943,22 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
             ? <a class="button" href={activeQRURL} download={activeQRDownloadName}>{m.clientConfig.downloadQR} {qrMode === "amneziavpn" && hasVPNQRSeries ? `${vpnQRChunk + 1}` : ""}</a>
             : <button class="button" type="button" disabled>{activeQRLoading ? m.common.loading : m.clientConfig.downloadQR}</button>}
         </div>
-      </section>
+      </section>}
       <section class="config-option">
         <div>
           <h3>{m.clientConfig.importOptions}</h3>
-          <p>{m.clientConfig.importOptionsText}</p>
+          <p>{confOnly ? m.clientConfig.confOnlyText : m.clientConfig.importOptionsText}</p>
         </div>
         <div class="config-actions">
           <button class="button primary" type="button" onClick={() => downloadConfig(client.id)}>{m.clientConfig.downloadConf}</button>
-          <button class="button" disabled={busy} type="button" onClick={copyImportKey}>{m.clientConfig.copyVpnKey}</button>
+          {!confOnly && <button class="button" disabled={busy} type="button" onClick={copyImportKey}>{m.clientConfig.copyVpnKey}</button>}
         </div>
-        {importKey && <textarea class="mono import-key" aria-label={m.clientConfig.vpnImportLink} readOnly value={importKey} />}
-        {importWarning && <p class="note">{importWarning}</p>}
+        {!confOnly && importKey && <textarea class="mono import-key" aria-label={m.clientConfig.vpnImportLink} readOnly value={importKey} />}
+        {!confOnly && importWarning && <p class="note">{importWarning}</p>}
       </section>
     </div>
     <p class="note">{m.clientConfig.secretWarning}</p>
-    {expandedQR && <dialog open class="qr-lightbox" aria-label={expandedQRTitle}>
+    {!confOnly && expandedQR && <dialog open class="qr-lightbox" aria-label={expandedQRTitle}>
       <button class="qr-lightbox-backdrop-button" type="button" onClick={() => setExpandedQR(null)} aria-label={m.clientConfig.closePreview} />
       <div class="qr-lightbox-card">
         <div class="qr-lightbox-head">

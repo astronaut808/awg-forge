@@ -513,7 +513,7 @@ func runAWGQuick(args ...string) error {
 }
 
 func runAWGQuickForTunnel(tunnel config.Tunnel, args ...string) error {
-	if tunnel.ProtocolProfileID != "awg_3_0" {
+	if !isAWG3Profile(tunnel.ProtocolProfileID) {
 		return runAWGQuick(args...)
 	}
 	return runAWGQuickWithEnv([]string{"AWG_QUICK_FORCE_USERSPACE=1"}, args...)

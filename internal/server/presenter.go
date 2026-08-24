@@ -208,8 +208,8 @@ func protocolParamKeys(profileID string) []string {
 		keys = append(keys, "I1", "I2", "I3", "I4", "I5")
 	case "awg_2_0":
 		keys = append(keys, "S3", "S4", "I1", "I2", "I3", "I4", "I5")
-	case "awg_3_0":
-		keys = append(keys, "S3", "S4", "I1", "I2", "I3", "I4", "I5", "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts", "PersistentKeepalive")
+	case "awg_3":
+		keys = append(keys, "S3", "S4", "I1", "I2", "I3", "I4", "I5", "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime", "KeepaliveTimeout", "MaxHandshakeAttempts", "PersistentKeepalive", "RandomTrailers", "DisableCookies")
 	}
 	sort.Strings(keys)
 	return keys

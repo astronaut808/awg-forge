@@ -150,13 +150,14 @@ func TestAutoMTUIsOmitted(t *testing.T) {
 	}
 }
 
-func TestAWG30RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
+func TestAWG3RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
 	state := testState(true)
-	params, err := (protocol.AWG30{}).GenerateDefaults()
+	params, err := (protocol.AWG3{}).GenerateDefaults()
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.Tunnels[0].ProtocolProfileID = "awg_3_0"
+	params["RandomTrailers"] = "on"
+	state.Tunnels[0].ProtocolProfileID = "awg_3"
 	state.Tunnels[0].ProtocolParams = params
 	state.Tunnels[0].ProtocolSecrets.HeaderProtectionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
@@ -168,6 +169,8 @@ func TestAWG30RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
 		"HeaderProtectionKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 		"ContentPaddingAddition = 10-100",
 		"MaxHandshakeAttempts = 15-20",
+		"RandomTrailers = on",
+		"DisableCookies = off",
 		"# I1 = <r 2><b 0x8580",
 	} {
 		if !strings.Contains(serverConfig, want) {
@@ -186,6 +189,7 @@ func TestAWG30RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
 		"I1 = <r 2><b 0x8580",
 		"HeaderProtectionKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 		"PersistentKeepalive = 25-35",
+		"RandomTrailers = on",
 	} {
 		if !strings.Contains(clientConfig, want) {
 			t.Fatalf("client config missing %q:\n%s", want, clientConfig)
@@ -195,6 +199,73 @@ func TestAWG30RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
 		if strings.Contains(clientConfig, "\n"+key+" = ") || strings.Contains(serverConfig, "# "+key+" = ") {
 			t.Fatalf("empty %s should be omitted", key)
 		}
+	}
+	if strings.Contains(clientConfig, "DisableCookies =") {
+		t.Fatalf("client config contains disabled AWG3 toggle:\n%s", clientConfig)
+	}
+}
+
+func TestAWG3RendersCanonicalToggleValuesForServerAndClient(t *testing.T) {
+	tests := []struct {
+		name                 string
+		randomTrailers       string
+		disableCookies       string
+		clientRandomTrailers bool
+		clientDisableCookies bool
+	}{
+		{name: "both disabled", randomTrailers: "off", disableCookies: "off"},
+		{name: "random trailers enabled", randomTrailers: "ON", disableCookies: "off", clientRandomTrailers: true},
+		{name: "cookies disabled", randomTrailers: "off", disableCookies: "On", clientDisableCookies: true},
+		{name: "both enabled", randomTrailers: "on", disableCookies: "ON", clientRandomTrailers: true, clientDisableCookies: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			state := testState(true)
+			params, err := (protocol.AWG3{}).GenerateDefaults()
+			if err != nil {
+				t.Fatal(err)
+			}
+			params["RandomTrailers"] = tc.randomTrailers
+			params["DisableCookies"] = tc.disableCookies
+			state.Tunnels[0].ProtocolProfileID = "awg_3"
+			state.Tunnels[0].ProtocolParams = params
+			state.Tunnels[0].ProtocolSecrets.HeaderProtectionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+			serverConfig, err := render.ServerConfig(state, state.Tunnels[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			for key, enabled := range map[string]bool{
+				"RandomTrailers": tc.clientRandomTrailers,
+				"DisableCookies": tc.clientDisableCookies,
+			} {
+				want := key + " = off"
+				if enabled {
+					want = key + " = on"
+				}
+				if !strings.Contains(serverConfig, want) {
+					t.Fatalf("server config missing canonical %q:\n%s", want, serverConfig)
+				}
+			}
+
+			clientConfig, err := render.ClientConfig(state, state.Tunnels[0], state.Tunnels[0].Clients[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			for key, enabled := range map[string]bool{
+				"RandomTrailers": tc.clientRandomTrailers,
+				"DisableCookies": tc.clientDisableCookies,
+			} {
+				line := key + " = on"
+				if strings.Contains(clientConfig, line) != enabled {
+					t.Fatalf("client config enabled state for %s = %t, want %t:\n%s", key, strings.Contains(clientConfig, line), enabled, clientConfig)
+				}
+				if strings.Contains(clientConfig, key+" = off") {
+					t.Fatalf("client config contains non-canonical disabled %s:\n%s", key, clientConfig)
+				}
+			}
+		})
 	}
 }
 

@@ -47,6 +47,16 @@ func TestLogLevelValidation(t *testing.T) {
 	})
 }
 
+func TestAWG3ExperimentalFlagDefaultsOff(t *testing.T) {
+	cfg, err := config.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AWG3Experimental {
+		t.Fatal("AWG 3.x experimental profile enabled by default")
+	}
+}
+
 func TestTrustedProxyValidation(t *testing.T) {
 	t.Run("trusted headers require CIDRs", func(t *testing.T) {
 		t.Setenv("WEBUI_TRUST_PROXY_HEADERS", "true")

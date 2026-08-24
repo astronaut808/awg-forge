@@ -375,6 +375,8 @@ type ClientExportContext struct {
 	RenderedConf string
 }
 
+var ErrUnsupportedClientExportFormat = errors.New("client export format is not supported for this protocol profile")
+
 func (s *Service) ClientExportContext(id string) (ClientExportContext, error) {
 	state, err := s.Init()
 	if err != nil {
@@ -383,6 +385,9 @@ func (s *Service) ClientExportContext(id string) (ClientExportContext, error) {
 	tunnel, client, ok := findClient(state, id)
 	if !ok {
 		return ClientExportContext{}, errors.New("client not found")
+	}
+	if tunnel.ProtocolProfileID == "awg_3" {
+		return ClientExportContext{}, ErrUnsupportedClientExportFormat
 	}
 	conf, err := render.ClientConfig(state, tunnel, client)
 	if err != nil {
@@ -394,13 +399,13 @@ func (s *Service) ClientExportContext(id string) (ClientExportContext, error) {
 }
 
 func (s *Service) ClientImportKey(id string) (string, config.Client, error) {
-	conf, client, err := s.ClientConfigForDownload(id)
+	ctx, err := s.ClientExportContext(id)
 	if err != nil {
 		return "", config.Client{}, err
 	}
-	key := "vpn://" + base64.RawURLEncoding.EncodeToString([]byte(conf))
-	s.log("info", "client.import_key.generated", "client import key generated", map[string]any{"client_id": client.ID, "client_name": client.Name}, nil)
-	return key, client, nil
+	key := "vpn://" + base64.RawURLEncoding.EncodeToString([]byte(ctx.RenderedConf))
+	s.log("info", "client.import_key.generated", "client import key generated", map[string]any{"client_id": ctx.Client.ID, "client_name": ctx.Client.Name}, nil)
+	return key, ctx.Client, nil
 }
 
 func (s *Service) EnforceExpiredClients() error {

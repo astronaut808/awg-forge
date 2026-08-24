@@ -52,7 +52,7 @@ func TestRunAWGQuickForAWG3ForcesUserspace(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("AWG_QUICK_FORCE_USERSPACE", "")
-	if err := runAWGQuickForTunnel(config.Tunnel{ProtocolProfileID: "awg_3_0"}, "up", "awg30"); err != nil {
+	if err := runAWGQuickForTunnel(config.Tunnel{ProtocolProfileID: "awg_3"}, "up", "awg3"); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -222,13 +222,13 @@ func (s *Service) renderAllLocked() error {
 	changed := false
 	for idx := range state.Tunnels {
 		tunnel := &state.Tunnels[idx]
-		if tunnel.ProtocolProfileID != "awg_3_0" || s.profileAvailable(tunnel.ProtocolProfileID) {
+		if !isAWG3Profile(tunnel.ProtocolProfileID) || s.profileAvailable(tunnel.ProtocolProfileID) {
 			continue
 		}
-		tunnel.LastApplyError = "AWG 3.0 lab runtime is unavailable; restore the lab image or remove this tunnel"
+		tunnel.LastApplyError = fmt.Sprintf("%s lab runtime is unavailable; restore the lab image or remove this tunnel", profileDisplayName(tunnel.ProtocolProfileID))
 		tunnel.UpdatedAt = time.Now().UTC()
 		changed = true
-		s.log("warn", "tunnel.apply.skipped", "AWG 3.0 tunnel skipped because the lab runtime is unavailable", tunnelAuditFields(*tunnel), nil)
+		s.log("warn", "tunnel.apply.skipped", "AWG 3 tunnel skipped because the lab runtime is unavailable", tunnelAuditFields(*tunnel), nil)
 	}
 	if changed {
 		state.UpdatedAt = time.Now().UTC()
@@ -237,7 +237,7 @@ func (s *Service) renderAllLocked() error {
 		}
 	}
 	for _, tunnel := range state.Tunnels {
-		if tunnel.ProtocolProfileID == "awg_3_0" && !s.profileAvailable(tunnel.ProtocolProfileID) {
+		if isAWG3Profile(tunnel.ProtocolProfileID) && !s.profileAvailable(tunnel.ProtocolProfileID) {
 			continue
 		}
 		if err := s.renderTunnelLocked(tunnel.ID, false); err != nil {

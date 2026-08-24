@@ -552,18 +552,50 @@ func TestAWG3RequiresExplicitExperimentalFlag(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
 	svc := app.New(cfg)
-	if _, err := svc.CreateTunnel("awg_3_0", "awg30", "10.30.0.0/24", 51840); err == nil {
+	if _, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840); err == nil {
 		t.Fatal("expected AWG3 creation without AWG3_EXPERIMENTAL to fail")
 	}
 
 	cfg.AWG3Experimental = true
 	svc = app.New(cfg)
-	tunnel, err := svc.CreateTunnel("awg_3_0", "awg30", "10.30.0.0/24", 51840)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tunnel.ProtocolSecrets.HeaderProtectionKey == "" {
 		t.Fatal("AWG3 tunnel is missing HeaderProtectionKey")
+	}
+	if tunnel.ProtocolParams["RandomTrailers"] != "off" || tunnel.ProtocolParams["DisableCookies"] != "off" {
+		t.Fatalf("unsafe AWG 3.x defaults: %#v", tunnel.ProtocolParams)
+	}
+}
+
+func TestAWG3ClientExportIsConfOnly(t *testing.T) {
+	enableAWG3RuntimeForTest(t)
+	cfg := testConfig(t)
+	cfg.AWG3Experimental = true
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "phone30")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conf, _, err := svc.ClientConfigForDownload(client.ID)
+	if err != nil {
+		t.Fatalf(".conf download failed: %v", err)
+	}
+	if !strings.Contains(conf, "HeaderProtectionKey =") {
+		t.Fatalf("AWG3 .conf is missing HeaderProtectionKey:\n%s", conf)
+	}
+	if _, err := svc.ClientExportContext(client.ID); !errors.Is(err, app.ErrUnsupportedClientExportFormat) {
+		t.Fatalf("ClientExportContext error = %v, want ErrUnsupportedClientExportFormat", err)
+	}
+	if _, _, err := svc.ClientImportKey(client.ID); !errors.Is(err, app.ErrUnsupportedClientExportFormat) {
+		t.Fatalf("ClientImportKey error = %v, want ErrUnsupportedClientExportFormat", err)
 	}
 }
 
@@ -572,7 +604,7 @@ func TestAWG3ProtocolUpdatePreservesAndRegeneratesHeaderProtectionKey(t *testing
 	cfg := testConfig(t)
 	cfg.AWG3Experimental = true
 	svc := app.New(cfg)
-	tunnel, err := svc.CreateTunnel("awg_3_0", "awg30", "10.30.0.0/24", 51840)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +615,7 @@ func TestAWG3ProtocolUpdatePreservesAndRegeneratesHeaderProtectionKey(t *testing
 	initialKey := tunnel.ProtocolSecrets.HeaderProtectionKey
 	params := maps.Clone(tunnel.ProtocolParams)
 	params["RekeyTimeout"] = "4-7"
-	if err := svc.UpdateTunnelProtocol(tunnel.ID, "awg_3_0", params); err != nil {
+	if err := svc.UpdateTunnelProtocol(tunnel.ID, "awg_3", params); err != nil {
 		t.Fatal(err)
 	}
 	state, err := svc.State()
@@ -597,7 +629,7 @@ func TestAWG3ProtocolUpdatePreservesAndRegeneratesHeaderProtectionKey(t *testing
 	if updated.Clients[0].ID != client.ID || updated.Clients[0].ConfigRevision >= updated.ConfigRevision {
 		t.Fatal("AWG3 protocol update did not mark client config stale")
 	}
-	if err := svc.RegenerateTunnelProtocol(tunnel.ID, "awg_3_0"); err != nil {
+	if err := svc.RegenerateTunnelProtocol(tunnel.ID, "awg_3"); err != nil {
 		t.Fatal(err)
 	}
 	state, err = svc.State()
@@ -619,12 +651,100 @@ func TestAWG3ProtocolUpdatePreservesAndRegeneratesHeaderProtectionKey(t *testing
 	}
 }
 
+func TestAWG3ProtocolToggleDisablePreservesRuntimeResetAndCanonicalClientConfig(t *testing.T) {
+	enableAWG3RuntimeForTest(t)
+	cfg := testConfig(t)
+	cfg.AWG3Experimental = true
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "phone30")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	params := maps.Clone(tunnel.ProtocolParams)
+	params["RandomTrailers"] = "on"
+	params["DisableCookies"] = "on"
+	if err := svc.UpdateTunnelProtocol(tunnel.ID, "awg_3", params); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.ClientConfigForDownload(client.ID); err != nil {
+		t.Fatal(err)
+	}
+	state, err := svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var enabledRevision int
+	for _, candidate := range state.Tunnels {
+		if candidate.ID == tunnel.ID {
+			enabledRevision = candidate.ConfigRevision
+			params = maps.Clone(candidate.ProtocolParams)
+			break
+		}
+	}
+	if enabledRevision == 0 {
+		t.Fatal("updated AWG3 tunnel not found")
+	}
+
+	params["RandomTrailers"] = "off"
+	params["DisableCookies"] = "off"
+	if err := svc.UpdateTunnelProtocol(tunnel.ID, "awg_3", params); err != nil {
+		t.Fatal(err)
+	}
+	state, err = svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var updated config.Tunnel
+	for _, candidate := range state.Tunnels {
+		if candidate.ID == tunnel.ID {
+			updated = candidate
+			break
+		}
+	}
+	if updated.ID == "" {
+		t.Fatal("disabled AWG3 tunnel not found")
+	}
+	if updated.ProtocolParams["RandomTrailers"] != "off" || updated.ProtocolParams["DisableCookies"] != "off" {
+		t.Fatalf("disabled AWG3 toggles were not persisted: %#v", updated.ProtocolParams)
+	}
+	if updated.ConfigRevision <= enabledRevision {
+		t.Fatalf("config revision = %d, want greater than %d", updated.ConfigRevision, enabledRevision)
+	}
+	if updated.Clients[0].ConfigRevision >= updated.ConfigRevision {
+		t.Fatal("disabled AWG3 toggles did not mark the client config stale")
+	}
+
+	serverConfig, err := os.ReadFile(filepath.Join(cfg.ConfigDir, "tunnels", updated.InterfaceName, "server.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"RandomTrailers = off", "DisableCookies = off"} {
+		if !strings.Contains(string(serverConfig), want) {
+			t.Fatalf("server config is missing runtime reset %q:\n%s", want, serverConfig)
+		}
+	}
+	clientConfig, err := svc.ClientConfig(client.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unwanted := range []string{"RandomTrailers =", "DisableCookies ="} {
+		if strings.Contains(clientConfig, unwanted) {
+			t.Fatalf("client config contains disabled AWG3 toggle %q:\n%s", unwanted, clientConfig)
+		}
+	}
+}
+
 func TestRenderAllSkipsAWG3WhenLabRuntimeIsUnavailable(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
 	cfg.AWG3Experimental = true
 	svc := app.New(cfg)
-	tunnel, err := svc.CreateTunnel("awg_3_0", "awg30", "10.30.0.0/24", 51840)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -65,13 +65,13 @@ func ByID(id string) (ProtocolProfile, bool) {
 		return AWG15{}, true
 	case "awg_2_0":
 		return AWG20{}, true
-	case "awg_3_0":
-		return AWG30{}, true
+	case "awg_3":
+		return AWG3{}, true
 	default:
 		return nil, false
 	}
 }
 
 func All() []ProtocolProfile {
-	return []ProtocolProfile{Legacy10{}, AWG15{}, AWG20{}, AWG30{}}
+	return []ProtocolProfile{Legacy10{}, AWG15{}, AWG20{}, AWG3{}}
 }

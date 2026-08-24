@@ -9,7 +9,7 @@ awg-forge is a launcher and manager for existing AmneziaWG implementations. It d
 | `awg_legacy_1_0` | Implemented | Renders AmneziaWG Legacy / 1.0 config fields: `Jc`, `Jmin`, `Jmax`, `S1`, `S2`, `H1`, `H2`, `H3`, `H4`. Defaults are generated for obfuscation, not WireGuard fallback. |
 | `awg_1_5` | Implemented | Adds `I1-I5` signature/masking packets to client configs. Defaults include the official DNS-like `I1` conversion packet plus small generated runtime-random signature packets for `I2-I5`. |
 | `awg_2_0` | Implemented | Uses `I1-I5`, adds `S3` and `S4`, supports `H1-H4` ranges, validates non-overlapping header ranges, and renders fresh tunnel/client configs. Defaults use a generated QUIC Initial-like `I1` CPS signature. `.conf` import has been validated on desktop and iOS clients with compatible AmneziaVPN builds. |
-| `awg_3_0` | Laboratory only | Available only in the locally built AWG3 lab image with explicit opt-in. It uses pinned `amneziawg-go` userspace and renders the current self-hosted `.conf` field set, including `HeaderProtectionKey` and AWG3 ranges. QR, `vpn://`, kernel-module runtime, and production compatibility are intentionally not supported. |
+| `awg_3` | Laboratory only | One experimental AWG 3.x family profile, available only in the locally built lab image with explicit opt-in. It uses pinned `amneziawg-go` 3.1.20260814 and `amneziawg-tools` 3.1.20260812 userspace sources and renders `HeaderProtectionKey`, AWG3 ranges, `RandomTrailers`, and `DisableCookies`. QR, `vpn://`, kernel runtime, and production compatibility are intentionally not supported. |
 
 ## Planned, Not Implemented
 
@@ -17,17 +17,18 @@ awg-forge is a launcher and manager for existing AmneziaWG implementations. It d
 | --- | --- | --- |
 | `custom` | Planned | Reserved for explicit user-provided config parameters after validation rules are clear. |
 
-## AWG 3.0 Laboratory Boundaries
+## AWG 3.x Laboratory Boundaries
 
-The AWG 3.0 laboratory profile is derived from the current AmneziaVPN self-hosted generator and the pinned `amneziawg-go` / `amneziawg-tools` source revisions. It uses:
+The single AWG 3.x laboratory profile is derived from the current AmneziaVPN self-hosted generator and the pinned `amneziawg-go` 3.1.20260814 / `amneziawg-tools` 3.1.20260812 release revisions. It uses:
 
 - `Jc`, `Jmin`, `Jmax`, `S1-S4`, `H1-H4`, `I1-I5`;
 - `HeaderProtectionKey` generated once per tunnel and kept out of the public API;
 - `ContentPaddingAddition`, `RekeyAfterTime`, `RekeyTimeout`, `RejectAfterTime`, `KeepaliveTimeout`, `MaxHandshakeAttempts`, and `PersistentKeepalive` as scalar or ascending `uint16` ranges.
+- `RandomTrailers` and `DisableCookies` as upstream `on`/`off` state values, both defaulting to `off`; server runtime configs render the explicit state, while client exports omit disabled options.
 
-The default values mirror the upstream client generator. AWG3 config parsing in the pinned tools accepts the extended ranges as `uint16`; awg-forge rejects values above `65535` rather than allowing upstream truncation. `S1-S4` must be at least `12` when header protection is enabled.
+The numeric and range defaults mirror the upstream client generator. AWG-Forge intentionally differs for the security-sensitive toggles: upstream enables `RandomTrailers` and `DisableCookies`, while the laboratory profile keeps both off until endpoint compatibility is verified and cookie protection is explicitly waived. AWG3 config parsing in the pinned tools accepts the extended ranges as `uint16`; awg-forge rejects values above `65535` rather than allowing upstream truncation. `S1-S4` must be at least `12` when header protection is enabled.
 
-AWG3 is forced through the pinned userspace runtime. Do not use it with the kernel module, do not assume compatibility with every client build, and do not enable QR or native JSON imports until those formats have been validated independently.
+AWG3 is forced through the pinned userspace runtime. `RandomTrailers` requires compatible 3.1 behavior on both endpoints. `DisableCookies=on` prevents cookie replies and weakens handshake-flood protection, so it must remain off outside controlled testing. Server configs retain explicit `off` values because runtime updates use `syncconf`; downloaded client configs omit disabled options, matching AmneziaVPN 5.0.1.5 canonical export. Use AmneziaVPN 5.0.1.5+ for interoperability tests and do not use 5.0.0.5 for AWG 3.1. Version 5.0.1.5 is a stable client release for Windows, Linux, macOS, and Android, but the AWG-Forge profile remains laboratory-only until platform interoperability has been verified. Do not enable QR/native JSON imports until those formats have been validated independently.
 
 ## Source Findings For AWG 2.0
 
@@ -122,6 +123,9 @@ Still requires broader validation:
 - [AmneziaWG docs](https://docs.amnezia.org/documentation/amnezia-wg/)
 - [Using AmneziaWG 2.0 on self-hosted servers](https://docs.amnezia.org/documentation/instructions/new-amneziawg-selfhosted/)
 - [amnezia-vpn/amneziawg-go README](https://github.com/amnezia-vpn/amneziawg-go)
+- [amneziawg-apple v3.1.3 parser fix](https://github.com/amnezia-vpn/amneziawg-apple/pull/43)
+- [AmneziaVPN 5.0.1.5 stable release](https://github.com/amnezia-vpn/amnezia-client/releases/tag/5.0.1.5)
+- [AmneziaVPN AWG 3.1 cross-version compatibility issue](https://github.com/amnezia-vpn/amnezia-client/issues/3016)
 - [amnezia-client `protocols_defs.h`](https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/client/protocols/protocols_defs.h)
 - [amnezia-client `importController.cpp`](https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/client/ui/controllers/importController.cpp)
 - [RFC 9000, QUIC: A UDP-Based Multiplexed and Secure Transport](https://www.rfc-editor.org/rfc/rfc9000)

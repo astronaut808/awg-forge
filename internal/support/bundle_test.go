@@ -11,6 +11,7 @@ import (
 
 	"github.com/astronaut808/awg-forge/internal/app"
 	"github.com/astronaut808/awg-forge/internal/config"
+	"github.com/astronaut808/awg-forge/internal/storage"
 )
 
 func TestGenerateRedactsSecrets(t *testing.T) {
@@ -40,6 +41,10 @@ PersistentKeepalive = 25
 	if err != nil {
 		t.Fatal(err)
 	}
+	state.Tunnels[0].ProtocolSecrets.HeaderProtectionKey = "header-protection-key"
+	if err := storage.New(cfg.ConfigDir).Save(state); err != nil {
+		t.Fatal(err)
+	}
 	bundle, err := Generate(context.Background(), cfg, svc, Options{Now: time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +59,7 @@ PersistentKeepalive = 25
 		client.PresharedKey,
 		"warp-private-key",
 		"warp-preshared-key",
+		"header-protection-key",
 	} {
 		if secret != "" && strings.Contains(content, secret) {
 			t.Fatalf("support bundle leaked secret %q in:\n%s", secret, content)

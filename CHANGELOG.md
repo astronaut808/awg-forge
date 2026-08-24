@@ -5,15 +5,17 @@
 ### Added
 
 - Added an OpenAPI 3.1 browser control API contract for the stable tunnel, client, traffic-limit, and WARP control surface, with compatibility tests for the contract envelope.
-- Added an opt-in AWG 3.0 laboratory profile with pinned upstream userspace runtime sources, validated self-hosted `.conf` rendering, and explicit protection against enabling it in stable images.
+- Added one opt-in AWG 3.x laboratory profile with pinned `amneziawg-go` 3.1.20260814 and `amneziawg-tools` 3.1.20260812 sources, validated self-hosted `.conf` rendering, and guarded `RandomTrailers` and `DisableCookies` controls that default to `off`.
 
 ### Changed
 
 - Publish GitHub Releases automatically from the matching `CHANGELOG.md` section when a version tag is pushed.
+- AWG 3.x client `.conf` exports now omit disabled `RandomTrailers` and `DisableCookies` options for AmneziaVPN 5.0.1.5+ compatibility, while server runtime configs retain explicit `off` values for reliable live resets.
 
 ### Security
 
 - Added stable safe API error codes and bound idempotency keys to request bodies, preventing a reused key from replaying a different mutation.
+- Updated the Go build toolchain to `1.26.7` and the frontend lockfile to `nanoid` `3.3.18` to include current security fixes.
 
 ## v0.18.0 - 2026-08-08
 
