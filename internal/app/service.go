@@ -236,13 +236,42 @@ func (s *Service) renderAllLocked() error {
 			return err
 		}
 	}
+	var tunnelIDs []string
 	for _, tunnel := range state.Tunnels {
 		if isAWG3Profile(tunnel.ProtocolProfileID) && !s.profileAvailable(tunnel.ProtocolProfileID) {
 			continue
 		}
-		if err := s.renderTunnelLocked(tunnel.ID, false); err != nil {
+		tunnelIDs = append(tunnelIDs, tunnel.ID)
+	}
+	for _, tunnelID := range tunnelIDs {
+		state, err := s.initLocked()
+		if err != nil {
 			return err
 		}
+		if err := s.renderTunnelFromState(state, tunnelID, false, false); err != nil {
+			return err
+		}
+	}
+	if !s.cfg.ApplyConfig {
+		return nil
+	}
+	state, err = s.initLocked()
+	if err != nil {
+		return err
+	}
+	if !warpRuntimeRequired(state) {
+		return nil
+	}
+	now := time.Now().UTC()
+	if err := s.reconcileWarpRuntimeStatus(&state, now); err != nil {
+		if saveErr := s.store.Save(state); saveErr != nil {
+			return errors.Join(fmt.Errorf("WARP apply failed: %w", err), fmt.Errorf("save state failed: %w", saveErr))
+		}
+		s.log("warn", "warp.apply.failed", "WARP runtime apply failed but state was saved", warpAuditFields(state.Warp, state), err)
+		return nil
+	}
+	if err := s.store.Save(state); err != nil {
+		return err
 	}
 	return nil
 }
@@ -258,10 +287,10 @@ func (s *Service) renderTunnelLocked(tunnelID string, failOnApply bool) error {
 	if err != nil {
 		return err
 	}
-	return s.renderTunnelFromState(state, tunnelID, failOnApply)
+	return s.renderTunnelFromState(state, tunnelID, failOnApply, true)
 }
 
-func (s *Service) renderTunnelFromState(state config.State, tunnelID string, failOnApply bool) error {
+func (s *Service) renderTunnelFromState(state config.State, tunnelID string, failOnApply, reconcileWarp bool) error {
 	started := time.Now()
 	idx, ok := tunnelIndexByID(state, tunnelID)
 	if !ok {
@@ -289,19 +318,20 @@ func (s *Service) renderTunnelFromState(state config.State, tunnelID string, fai
 			s.log("warn", "tunnel.apply.failed", "runtime apply failed but state was saved", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
 			return nil
 		}
-		if err := s.reconcileWarpRuntime(state); err != nil {
-			state.Tunnels[idx].LastApplyError = err.Error()
-			state.Tunnels[idx].UpdatedAt = now
-			state.UpdatedAt = now
-			if saveErr := s.store.Save(state); saveErr != nil {
-				return errors.Join(fmt.Errorf("WARP apply failed: %w", err), fmt.Errorf("save state failed: %w", saveErr))
+		if reconcileWarp && warpRuntimeRequired(state) {
+			if err := s.reconcileWarpRuntimeStatus(&state, now); err != nil {
+				state.Tunnels[idx].UpdatedAt = now
+				state.UpdatedAt = now
+				if saveErr := s.store.Save(state); saveErr != nil {
+					return errors.Join(fmt.Errorf("WARP apply failed: %w", err), fmt.Errorf("save state failed: %w", saveErr))
+				}
+				if failOnApply {
+					s.log("error", "warp.apply.failed", "WARP runtime apply failed", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
+					return &ApplyError{Err: err}
+				}
+				s.log("warn", "warp.apply.failed", "WARP runtime apply failed but state was saved", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
+				return nil
 			}
-			if failOnApply {
-				s.log("error", "warp.apply.failed", "WARP runtime apply failed", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
-				return &ApplyError{Err: err}
-			}
-			s.log("warn", "warp.apply.failed", "WARP runtime apply failed but state was saved", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
-			return nil
 		}
 		state.Tunnels[idx].LastApplyAt = now
 		s.log("info", "tunnel.apply.succeeded", "runtime tunnel applied", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), nil)

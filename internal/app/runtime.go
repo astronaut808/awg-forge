@@ -282,6 +282,27 @@ func (s *Service) reconcileWarpRuntime(state config.State) error {
 	return nil
 }
 
+func warpRuntimeRequired(state config.State) bool {
+	return state.Warp.Configured() || len(warp.RoutesForState(state)) > 0
+}
+
+func (s *Service) reconcileWarpRuntimeStatus(state *config.State, now time.Time) error {
+	err := s.reconcileWarpRuntime(*state)
+	recordWarpApplyResult(state, now, err)
+	return err
+}
+
+func recordWarpApplyResult(state *config.State, now time.Time, err error) {
+	state.Warp.UpdatedAt = now
+	state.UpdatedAt = now
+	if err != nil {
+		state.Warp.LastApplyError = err.Error()
+		return
+	}
+	state.Warp.LastApplyAt = now
+	state.Warp.LastApplyError = ""
+}
+
 func (s *Service) ensureFirewallRules(tunnel config.Tunnel) error {
 	report, err := firewall.Repair(s.cfg, config.State{Tunnels: []config.Tunnel{tunnel}}, firewall.IPTablesRunner{})
 	if err != nil {

@@ -12,6 +12,10 @@
 - Publish GitHub Releases automatically from the matching `CHANGELOG.md` section when a version tag is pushed.
 - AWG 3.x client `.conf` exports now omit disabled `RandomTrailers` and `DisableCookies` options for AmneziaVPN 5.0.1.5+ compatibility, while server runtime configs retain explicit `off` values for reliable live resets.
 
+### Fixed
+
+- Reconcile WARP once after all tunnel interfaces are restored during startup, and report WARP apply failures on WARP instead of leaving a stale error on an otherwise healthy tunnel.
+
 ### Security
 
 - Added stable safe API error codes and bound idempotency keys to request bodies, preventing a reused key from replaying a different mutation.
