@@ -548,15 +548,14 @@ func TestCreateAWG20TunnelAndClient(t *testing.T) {
 	}
 }
 
-func TestAWG3RequiresExplicitExperimentalFlag(t *testing.T) {
-	enableAWG3RuntimeForTest(t)
+func TestAWG3RequiresLaboratoryRuntime(t *testing.T) {
 	cfg := testConfig(t)
 	svc := app.New(cfg)
 	if _, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840); err == nil {
-		t.Fatal("expected AWG3 creation without AWG3_EXPERIMENTAL to fail")
+		t.Fatal("expected AWG3 creation without the laboratory runtime to fail")
 	}
 
-	cfg.AWG3Experimental = true
+	enableAWG3RuntimeForTest(t)
 	svc = app.New(cfg)
 	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {
@@ -570,10 +569,9 @@ func TestAWG3RequiresExplicitExperimentalFlag(t *testing.T) {
 	}
 }
 
-func TestAWG3ClientExportIsConfOnly(t *testing.T) {
+func TestAWG3ClientExportSupportsConfAndRawContext(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
-	cfg.AWG3Experimental = true
 	svc := app.New(cfg)
 	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {
@@ -591,8 +589,15 @@ func TestAWG3ClientExportIsConfOnly(t *testing.T) {
 	if !strings.Contains(conf, "HeaderProtectionKey =") {
 		t.Fatalf("AWG3 .conf is missing HeaderProtectionKey:\n%s", conf)
 	}
-	if _, err := svc.ClientExportContext(client.ID); !errors.Is(err, app.ErrUnsupportedClientExportFormat) {
-		t.Fatalf("ClientExportContext error = %v, want ErrUnsupportedClientExportFormat", err)
+	ctx, err := svc.ClientExportContext(client.ID)
+	if err != nil {
+		t.Fatalf("ClientExportContext failed: %v", err)
+	}
+	if ctx.RenderedConf != conf {
+		t.Fatal("raw QR export context differs from the downloaded .conf")
+	}
+	if _, err := svc.ClientAmneziaVPNExportContext(client.ID); !errors.Is(err, app.ErrUnsupportedClientExportFormat) {
+		t.Fatalf("ClientAmneziaVPNExportContext error = %v, want ErrUnsupportedClientExportFormat", err)
 	}
 	if _, _, err := svc.ClientImportKey(client.ID); !errors.Is(err, app.ErrUnsupportedClientExportFormat) {
 		t.Fatalf("ClientImportKey error = %v, want ErrUnsupportedClientExportFormat", err)
@@ -602,7 +607,6 @@ func TestAWG3ClientExportIsConfOnly(t *testing.T) {
 func TestAWG3ProtocolUpdatePreservesAndRegeneratesHeaderProtectionKey(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
-	cfg.AWG3Experimental = true
 	svc := app.New(cfg)
 	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {
@@ -654,7 +658,6 @@ func TestAWG3ProtocolUpdatePreservesAndRegeneratesHeaderProtectionKey(t *testing
 func TestAWG3ProtocolToggleDisablePreservesRuntimeResetAndCanonicalClientConfig(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
-	cfg.AWG3Experimental = true
 	svc := app.New(cfg)
 	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {
@@ -742,7 +745,6 @@ func TestAWG3ProtocolToggleDisablePreservesRuntimeResetAndCanonicalClientConfig(
 func TestRenderAllSkipsAWG3WhenLabRuntimeIsUnavailable(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
-	cfg.AWG3Experimental = true
 	svc := app.New(cfg)
 	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {

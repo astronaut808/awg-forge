@@ -86,14 +86,44 @@ peer: client-public-key
   jc: 8
   h1: 123456
   i1: <r 2><b 0x1234>
+  header protection key: header-protection-key
+  content padding addition: 10-100
+  rekey after time: 100-120
+  rekey timeout: 3-7
+  reject after time: 150-180
+  keepalive timeout: 5-15
+  max handshake attempts: 15-20
 `)
-	for _, secret := range []string{"server-public-key", "server-private-key", "client-public-key", "client-psk", "123456", "0x1234"} {
+	for _, secret := range []string{
+		"server-public-key",
+		"server-private-key",
+		"client-public-key",
+		"client-psk",
+		"123456",
+		"0x1234",
+		"header-protection-key",
+		"10-100",
+		"100-120",
+		"3-7",
+		"150-180",
+		"5-15",
+		"15-20",
+	} {
 		if strings.Contains(got, secret) {
 			t.Fatalf("sanitizeText leaked %q in:\n%s", secret, got)
 		}
 	}
 	if !strings.Contains(got, "sha256:") {
 		t.Fatalf("sanitizeText should keep key fingerprints:\n%s", got)
+	}
+}
+
+func TestRuntimeCommandsExcludeRawAWGOutput(t *testing.T) {
+	state := config.State{Tunnels: []config.Tunnel{{InterfaceName: "awg3", ListenPort: 38932}}}
+	for _, cmd := range runtimeCommands(config.Config{ExternalInterface: "eth0"}, state) {
+		if len(cmd.Args) > 0 && cmd.Args[0] == "awg" {
+			t.Fatalf("support bundle must not collect raw awg output: %v", cmd.Args)
+		}
 	}
 }
 

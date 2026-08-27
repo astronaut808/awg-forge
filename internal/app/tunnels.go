@@ -711,7 +711,7 @@ func (s *Service) newTunnel(spec tunnelSpec) (config.Tunnel, error) {
 func (s *Service) profileAvailable(profileID string) bool {
 	switch profileID {
 	case "awg_3":
-		return s.cfg.AWG3Experimental && buildinfo.AWG3RuntimeEnabled()
+		return buildinfo.AWG3RuntimeEnabled()
 	}
 	_, ok := protocol.ByID(profileID)
 	return ok

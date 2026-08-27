@@ -103,6 +103,10 @@ export function profileTitle(profileID: string): string {
   return "AmneziaWG Legacy / 1.0";
 }
 
+export function isExperimentalProfile(profileID: string): boolean {
+  return profileID === "awg_3";
+}
+
 export function classNames(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }

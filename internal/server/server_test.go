@@ -126,6 +126,42 @@ func TestPublicTunnelOmitsProtocolSecrets(t *testing.T) {
 	}
 }
 
+func TestPublicStateExposesAWG3OnlyWithLaboratoryRuntime(t *testing.T) {
+	previousRuntime := buildinfo.AWG3Runtime
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
+
+	cfg := config.Config{
+		ConfigDir:         t.TempDir(),
+		ServerHost:        "vpn.example.com",
+		ExternalInterface: "eth0",
+	}
+	w := &web{cfg: cfg, service: app.New(cfg)}
+
+	hasProfile := func(payload map[string]any, profileID string) bool {
+		t.Helper()
+		profiles, ok := payload["profiles"].([]map[string]any)
+		if !ok {
+			t.Fatalf("profiles has type %T", payload["profiles"])
+		}
+		for _, profile := range profiles {
+			if profile["id"] == profileID {
+				return true
+			}
+		}
+		return false
+	}
+
+	buildinfo.AWG3Runtime = "false"
+	if hasProfile(w.publicState(context.Background(), config.State{}), "awg_3") {
+		t.Fatal("stable runtime exposed the AWG 3.x profile")
+	}
+
+	buildinfo.AWG3Runtime = "true"
+	if !hasProfile(w.publicState(context.Background(), config.State{}), "awg_3") {
+		t.Fatal("laboratory runtime did not expose the AWG 3.x profile")
+	}
+}
+
 func TestSecurityHeadersAllowOnlyImageBlobURLs(t *testing.T) {
 	w := &web{}
 	rr := httptest.NewRecorder()
@@ -1368,7 +1404,7 @@ func TestAmneziaVPNQRSeriesReturnsSingleChunk(t *testing.T) {
 	}
 }
 
-func TestAWG3ClientExportAPIsRejectUnverifiedFormats(t *testing.T) {
+func TestAWG3ClientExportAPIsAllowRawConfQR(t *testing.T) {
 	previousRuntime := buildinfo.AWG3Runtime
 	buildinfo.AWG3Runtime = "true"
 	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
@@ -1387,7 +1423,6 @@ func TestAWG3ClientExportAPIsRejectUnverifiedFormats(t *testing.T) {
 		PersistentKeepalive: 0,
 		MTU:                 1420,
 		ProtocolProfile:     "awg_legacy_1_0",
-		AWG3Experimental:    true,
 	}
 	svc := app.New(cfg)
 	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
@@ -1400,18 +1435,25 @@ func TestAWG3ClientExportAPIsRejectUnverifiedFormats(t *testing.T) {
 	}
 	w := &web{service: svc}
 
-	tests := []struct {
+	r := httptest.NewRequest(http.MethodGet, "/api/clients/"+client.ID+"/qr", nil)
+	rw := httptest.NewRecorder()
+	w.clientQRAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("raw QR status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	requireReadableQRCodePNG(t, rw.Body.Bytes())
+
+	blocked := []struct {
 		name   string
 		method string
 		path   string
 		handle func(http.ResponseWriter, *http.Request, string)
 	}{
-		{name: "raw conf QR", method: http.MethodGet, path: "/api/clients/" + client.ID + "/qr", handle: w.clientQRAPI},
 		{name: "AmneziaVPN QR", method: http.MethodGet, path: "/api/clients/" + client.ID + "/amnezia-vpn-qr", handle: w.clientAmneziaVPNQRAPI},
 		{name: "AmneziaVPN QR series", method: http.MethodGet, path: "/api/clients/" + client.ID + "/amnezia-vpn-qr-series", handle: w.clientAmneziaVPNQRSeriesAPI},
 		{name: "vpn import key", method: http.MethodPost, path: "/api/clients/" + client.ID + "/import-key", handle: w.clientImportKeyAPI},
 	}
-	for _, tt := range tests {
+	for _, tt := range blocked {
 		t.Run(tt.name, func(t *testing.T) {
 			r := httptest.NewRequest(tt.method, tt.path, nil)
 			if tt.method == http.MethodPost {
@@ -1432,8 +1474,8 @@ func TestAWG3ClientExportAPIsRejectUnverifiedFormats(t *testing.T) {
 		})
 	}
 
-	r := httptest.NewRequest(http.MethodGet, "/clients/config/"+client.ID, nil)
-	rw := httptest.NewRecorder()
+	r = httptest.NewRequest(http.MethodGet, "/clients/config/"+client.ID, nil)
+	rw = httptest.NewRecorder()
 	w.clientConfig(rw, r)
 	if got, want := rw.Code, http.StatusOK; got != want {
 		t.Fatalf(".conf status = %d body = %s, want %d", got, rw.Body.String(), want)

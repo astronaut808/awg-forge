@@ -26,6 +26,7 @@ import {
   downloadResponse,
   expirationValue,
   formatBytes,
+  isExperimentalProfile,
   profileTitle,
   relativeTime,
 } from "./utils";
@@ -364,11 +365,13 @@ function TunnelFirstDashboard({ profiles, tunnels, filter, setFilter, onCreateTu
   renderTunnel: (tunnel: Tunnel) => preact.ComponentChildren;
 }) {
   const { m } = useI18n();
-  const effectiveFilter = filter === "all" || profiles.some((profile) => profile.id === filter) ? filter : "all";
+  const profileCounts = new Map(profiles.map((profile) => [profile.id, tunnels.filter((tunnel) => tunnel.profile === profile.id).length]));
+  const countFor = (profileID: string) => profileCounts.get(profileID) || 0;
+  const filterProfiles = profiles.filter((profile) => countFor(profile.id) > 0);
+  const effectiveFilter = filter === "all" || filterProfiles.some((profile) => profile.id === filter) ? filter : "all";
   const filteredProfile = profiles.find((profile) => profile.id === effectiveFilter);
   const visibleProfiles = profiles.filter((profile) => effectiveFilter === "all" || profile.id === effectiveFilter);
   const visibleTunnels = effectiveFilter === "all" ? tunnels : tunnels.filter((tunnel) => tunnel.profile === effectiveFilter);
-  const countFor = (profileID: string) => tunnels.filter((tunnel) => tunnel.profile === profileID).length;
   return (
     <section class="panel stack dashboard-v2">
       <div class="section-head">
@@ -376,8 +379,8 @@ function TunnelFirstDashboard({ profiles, tunnels, filter, setFilter, onCreateTu
           <h2>{m.dashboard.tunnels}</h2>
           <div class="filter-row" aria-label={m.aria.tunnelFilters}>
             <button className={classNames("filter-pill", effectiveFilter === "all" && "active")} type="button" onClick={() => setFilter("all")}><span class="filter-label">{m.common.all}</span><span class="filter-count">{tunnels.length}</span></button>
-            {profiles.map((profile) => (
-              <button key={profile.id} className={classNames("filter-pill", countFor(profile.id) === 0 && "is-empty", effectiveFilter === profile.id && "active")} type="button" onClick={() => setFilter(profile.id)} title={`${profileTitle(profile.id)} · ${m.dashboard.tunnelCount(countFor(profile.id))}`}>
+            {filterProfiles.map((profile) => (
+              <button key={profile.id} className={classNames("filter-pill", effectiveFilter === profile.id && "active")} type="button" onClick={() => setFilter(profile.id)} title={`${profileTitle(profile.id)} · ${m.dashboard.tunnelCount(countFor(profile.id))}`}>
                 <span class="filter-label">{profile.tab}</span><span class="filter-count">{countFor(profile.id)}</span>
               </button>
             ))}
@@ -399,7 +402,7 @@ function TunnelFirstDashboard({ profiles, tunnels, filter, setFilter, onCreateTu
             return (
               <section class="profile-group" key={profile.id}>
                 <div class="profile-group-head">
-                  <h3>{profileTitle(profile.id)}</h3>
+                  <div class="profile-group-title"><h3>{profileTitle(profile.id)}</h3>{isExperimentalProfile(profile.id) && <Badge tone="warn">{m.common.experimental}</Badge>}</div>
                   <span>{m.dashboard.tunnelCount(group.length)}</span>
                 </div>
                 <div className={classNames("tunnel-grid", group.length === 1 && "single")}>
@@ -451,6 +454,7 @@ function TunnelCard(props: {
         <Fact label={m.tunnel.clients} value={`${tunnel.clients.filter((client) => client.enabled).length}/${tunnel.clients.length}`} />
       </div>
       <div class="badges">
+        {isExperimentalProfile(tunnel.profile) && <Badge tone="warn">{m.common.experimental}</Badge>}
         {tunnel.status?.firewall?.label && <Badge tone={toneFromLevel(tunnel.status.firewall.level)} title={tunnel.status.firewall.message}>{tunnel.status.firewall.label}</Badge>}
         {stale > 0 && <Badge tone="warn">{m.tunnel.staleConfig(stale)}</Badge>}
         {tunnel.egress_mode === "warp" && <Badge tone="brand">{m.tunnel.warpEgress}</Badge>}
@@ -539,7 +543,7 @@ function ModalContent({ modal, state, notify, close, reload, runAction }: {
   if (modal.kind === "client-settings") return <ClientSettingsForm client={modal.client} runAction={runAction} />;
   if (modal.kind === "client-config") {
     const tunnel = state.tunnels.find((candidate) => candidate.id === modal.client.tunnel_id);
-    return <ClientConfigPanel client={modal.client} confOnly={tunnel?.profile === "awg_3"} notify={notify} />;
+    return <ClientConfigPanel client={modal.client} amneziaWGOnly={tunnel?.profile === "awg_3"} notify={notify} />;
   }
   if (modal.kind === "delete-tunnel") return <DeleteTunnelConfirmation tunnel={modal.tunnel} close={close} runAction={runAction} />;
   return <MaintenanceCenter state={state} notify={notify} close={close} reload={reload} />;
@@ -605,7 +609,7 @@ function CreateTunnelForm({ state, profile, runAction }: { state: AppState; prof
       ? api.createTunnel({ profile: field(form, "profile"), name: field(form, "name"), port, automatic_port: portMode === "automatic", subnet: field(form, "subnet"), egress_mode: field(form, "egress_mode") })
       : Promise.reject(new Error(m.forms.portSuggestionFailed)));
   }}>
-    <label>{m.forms.protocol}<select aria-label={m.forms.protocol} name="profile" value={selected.id} onInput={(event) => setProfileID((event.currentTarget as HTMLSelectElement).value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{profileTitle(item.id)}</option>)}</select></label>
+    <label>{m.forms.protocol}<select aria-label={m.forms.protocol} name="profile" value={selected.id} onInput={(event) => setProfileID((event.currentTarget as HTMLSelectElement).value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{profileTitle(item.id)}{isExperimentalProfile(item.id) ? ` · ${m.common.experimental}` : ""}</option>)}</select></label>
     <label>{m.forms.nameInterface}<input key={`${selected.id}-name`} aria-label={m.forms.nameInterface} name="name" defaultValue={selected.suggested_name || "awg0"} /></label>
     <label>{m.forms.portSelection}<select aria-label={m.forms.portSelection} value={portMode} onInput={(event) => setPortMode((event.currentTarget as HTMLSelectElement).value as PortSelectionMode)}><option value="automatic">{m.forms.automaticPort}</option><option value="manual">{m.forms.manualPort}</option></select></label>
     <div class="form-field"><span class="field-title">{m.forms.listenPort}</span><span class="port-input-wrap">
@@ -764,7 +768,7 @@ function ExpirationField({ current, keepCurrent = false }: { current?: string; k
   </>;
 }
 
-function ClientConfigPanel({ client, confOnly, notify }: { client: Client; confOnly: boolean; notify: (message: string) => void }) {
+function ClientConfigPanel({ client, amneziaWGOnly, notify }: { client: Client; amneziaWGOnly: boolean; notify: (message: string) => void }) {
   const { m } = useI18n();
   const notifyRef = useRef(notify);
   const qrImageURLsRef = useRef<Record<string, string>>({});
@@ -778,21 +782,22 @@ function ClientConfigPanel({ client, confOnly, notify }: { client: Client; confO
   const [failedQRKeys, setFailedQRKeys] = useState<Record<string, boolean>>({});
   const [expandedQR, setExpandedQR] = useState<ExpandedQR | null>(null);
   const [busy, setBusy] = useState(false);
+  const activeQRMode: QRImportMode = amneziaWGOnly ? "amneziawg" : qrMode;
   const hasVPNQRSeries = vpnQRChunks > 1;
   const vpnQRDownloadName = hasVPNQRSeries ? `${client.name}-amneziavpn-${vpnQRChunk + 1}-of-${vpnQRChunks}.png` : `${client.name}-amneziavpn.png`;
-  const activeQRKey = qrImageKey(client.id, qrMode, vpnQRChunk);
-  const activeQRRequestURL = qrMode === "amneziavpn"
+  const activeQRKey = qrImageKey(client.id, activeQRMode, vpnQRChunk);
+  const activeQRRequestURL = activeQRMode === "amneziavpn"
     ? api.clientAmneziaVPNQRCodeURL(client.id, vpnQRChunk)
     : api.clientQRCodeURL(client.id);
   const activeQRURL = qrImageURLs[activeQRKey] || "";
   const activeQRLoading = Boolean(loadingQRKeys[activeQRKey]);
   const activeQRFailed = Boolean(failedQRKeys[activeQRKey]);
-  const activeQRTitle = qrMode === "amneziavpn" ? m.clientConfig.amneziaVPNQR : m.clientConfig.amneziaWGQR;
-  const activeQRDescription = qrMode === "amneziavpn"
+  const activeQRTitle = activeQRMode === "amneziavpn" ? m.clientConfig.amneziaVPNQR : m.clientConfig.amneziaWGQR;
+  const activeQRDescription = activeQRMode === "amneziavpn"
     ? m.clientConfig.amneziaVPNDescription
     : m.clientConfig.amneziaWGDescription;
-  const activeQRAlt = qrMode === "amneziavpn" ? m.clientConfig.amneziaVPNAlt(client.name) : m.clientConfig.amneziaWGAlt(client.name);
-  const activeQRDownloadName = qrMode === "amneziavpn" ? vpnQRDownloadName : `${client.name}-amneziawg.png`;
+  const activeQRAlt = activeQRMode === "amneziavpn" ? m.clientConfig.amneziaVPNAlt(client.name) : m.clientConfig.amneziaWGAlt(client.name);
+  const activeQRDownloadName = activeQRMode === "amneziavpn" ? vpnQRDownloadName : `${client.name}-amneziawg.png`;
   const expandedQRKey = expandedQR ? qrImageKey(client.id, expandedQR.mode, expandedQR.chunk) : "";
   const expandedQRURL = expandedQRKey ? qrImageURLs[expandedQRKey] || "" : "";
   const expandedQRTitle = expandedQR?.mode === "amneziavpn" ? m.clientConfig.amneziaVPNQR : m.clientConfig.amneziaWGQR;
@@ -817,7 +822,7 @@ function ClientConfigPanel({ client, confOnly, notify }: { client: Client; confO
   }, [client.id]);
 
   useEffect(() => {
-    if (confOnly) return;
+    if (amneziaWGOnly) return;
     let cancelled = false;
     setVPNQRChunks(1);
     setVPNQRChunk(0);
@@ -830,10 +835,9 @@ function ClientConfigPanel({ client, confOnly, notify }: { client: Client; confO
     return () => {
       cancelled = true;
     };
-  }, [client.id, confOnly]);
+  }, [client.id, amneziaWGOnly]);
 
   useEffect(() => {
-    if (confOnly) return;
     if (qrImageURLs[activeQRKey] || failedQRKeys[activeQRKey]) return;
 
     let cancelled = false;
@@ -861,7 +865,7 @@ function ClientConfigPanel({ client, confOnly, notify }: { client: Client; confO
       cancelled = true;
       controller.abort();
     };
-  }, [activeQRKey, activeQRRequestURL, confOnly, failedQRKeys, qrImageURLs]);
+  }, [activeQRKey, activeQRRequestURL, failedQRKeys, qrImageURLs]);
 
   useEffect(() => {
     if (!expandedQR) return;
@@ -915,24 +919,24 @@ function ClientConfigPanel({ client, confOnly, notify }: { client: Client; confO
 
   return <PanelTitle title={m.clientConfig.title} subtitle={`${client.name} · ${client.address}`}>
     <div class="config-options">
-      {!confOnly && <section class="config-option qr-config-option">
+      <section class="config-option qr-config-option">
         <div>
           <h3>{activeQRTitle}</h3>
           <p>{activeQRDescription}</p>
         </div>
-        <div class="segmented qr-mode-tabs" role="tablist" aria-label={m.clientConfig.qrImportMode}>
+        {!amneziaWGOnly && <div class="segmented qr-mode-tabs" role="tablist" aria-label={m.clientConfig.qrImportMode}>
           <button class={qrMode === "amneziavpn" ? "active" : ""} type="button" role="tab" aria-selected={qrMode === "amneziavpn"} onClick={() => setQRMode("amneziavpn")}>AmneziaVPN</button>
           <button class={qrMode === "amneziawg" ? "active" : ""} type="button" role="tab" aria-selected={qrMode === "amneziawg"} onClick={() => setQRMode("amneziawg")}>AmneziaWG</button>
-        </div>
+        </div>}
         <div class="qr-panel">
-          {activeQRURL && <button class="qr-image-button" type="button" onClick={() => setExpandedQR({ mode: qrMode, chunk: vpnQRChunk })} aria-label={m.clientConfig.openLarger(activeQRTitle)}>
+          {activeQRURL && <button class="qr-image-button" type="button" onClick={() => setExpandedQR({ mode: activeQRMode, chunk: vpnQRChunk })} aria-label={m.clientConfig.openLarger(activeQRTitle)}>
             <img class="qr-image" src={activeQRURL} alt={activeQRAlt} />
           </button>}
           {!activeQRURL && <div class="qr-image-loading" role={activeQRFailed ? "alert" : "status"}>
             <span>{activeQRFailed ? m.common.requestFailed : m.common.loading}</span>
             {activeQRFailed && <button class="button" type="button" onClick={retryActiveQR}>{m.common.retry}</button>}
           </div>}
-          {qrMode === "amneziavpn" && hasVPNQRSeries && <div class="qr-series">
+          {activeQRMode === "amneziavpn" && hasVPNQRSeries && <div class="qr-series">
             <button class="button" type="button" disabled={vpnQRChunk === 0} onClick={() => selectVPNQRChunk(Math.max(0, vpnQRChunk - 1))}>{m.clientConfig.previous}</button>
             <span>{m.clientConfig.qrCounter(vpnQRChunk + 1, vpnQRChunks)}</span>
             <button class="button" type="button" disabled={vpnQRChunk + 1 >= vpnQRChunks} onClick={() => selectVPNQRChunk(Math.min(vpnQRChunks - 1, vpnQRChunk + 1))}>{m.clientConfig.next}</button>
@@ -940,25 +944,25 @@ function ClientConfigPanel({ client, confOnly, notify }: { client: Client; confO
         </div>
         <div class="action-row">
           {activeQRURL
-            ? <a class="button" href={activeQRURL} download={activeQRDownloadName}>{m.clientConfig.downloadQR} {qrMode === "amneziavpn" && hasVPNQRSeries ? `${vpnQRChunk + 1}` : ""}</a>
+            ? <a class="button" href={activeQRURL} download={activeQRDownloadName}>{m.clientConfig.downloadQR} {activeQRMode === "amneziavpn" && hasVPNQRSeries ? `${vpnQRChunk + 1}` : ""}</a>
             : <button class="button" type="button" disabled>{activeQRLoading ? m.common.loading : m.clientConfig.downloadQR}</button>}
         </div>
-      </section>}
+      </section>
       <section class="config-option">
         <div>
           <h3>{m.clientConfig.importOptions}</h3>
-          <p>{confOnly ? m.clientConfig.confOnlyText : m.clientConfig.importOptionsText}</p>
+          <p>{amneziaWGOnly ? m.clientConfig.amneziaWGOnlyText : m.clientConfig.importOptionsText}</p>
         </div>
         <div class="config-actions">
           <button class="button primary" type="button" onClick={() => downloadConfig(client.id)}>{m.clientConfig.downloadConf}</button>
-          {!confOnly && <button class="button" disabled={busy} type="button" onClick={copyImportKey}>{m.clientConfig.copyVpnKey}</button>}
+          {!amneziaWGOnly && <button class="button" disabled={busy} type="button" onClick={copyImportKey}>{m.clientConfig.copyVpnKey}</button>}
         </div>
-        {!confOnly && importKey && <textarea class="mono import-key" aria-label={m.clientConfig.vpnImportLink} readOnly value={importKey} />}
-        {!confOnly && importWarning && <p class="note">{importWarning}</p>}
+        {!amneziaWGOnly && importKey && <textarea class="mono import-key" aria-label={m.clientConfig.vpnImportLink} readOnly value={importKey} />}
+        {!amneziaWGOnly && importWarning && <p class="note">{importWarning}</p>}
       </section>
     </div>
     <p class="note">{m.clientConfig.secretWarning}</p>
-    {!confOnly && expandedQR && <dialog open class="qr-lightbox" aria-label={expandedQRTitle}>
+    {expandedQR && <dialog open class="qr-lightbox" aria-label={expandedQRTitle}>
       <button class="qr-lightbox-backdrop-button" type="button" onClick={() => setExpandedQR(null)} aria-label={m.clientConfig.closePreview} />
       <div class="qr-lightbox-card">
         <div class="qr-lightbox-head">
@@ -1189,7 +1193,7 @@ function SupportPanel({ state, action, busyAction }: { state: AppState; action: 
       </div>
     </section>
     <pre class="command-block">{`docker exec awg-forge awg-forge doctor
-docker exec awg-forge awg show
+docker exec awg-forge awg-forge firewall check
 docker compose logs -f`}</pre>
   </div>;
 }

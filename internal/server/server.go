@@ -1170,7 +1170,7 @@ func (w *web) clientAmneziaVPNQRAPI(rw http.ResponseWriter, r *http.Request, id 
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	ctx, err := w.service.ClientExportContext(id)
+	ctx, err := w.service.ClientAmneziaVPNExportContext(id)
 	if err != nil {
 		writeClientExportError(rw, r, err)
 		return
@@ -1207,7 +1207,7 @@ func (w *web) clientAmneziaVPNQRSeriesAPI(rw http.ResponseWriter, r *http.Reques
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if _, err := w.service.ClientExportContext(id); err != nil {
+	if _, err := w.service.ClientAmneziaVPNExportContext(id); err != nil {
 		writeClientExportError(rw, r, err)
 		return
 	}
@@ -1290,7 +1290,7 @@ func (w *web) clientImportKeyAPI(rw http.ResponseWriter, r *http.Request, id str
 
 func writeClientExportError(rw http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, app.ErrUnsupportedClientExportFormat) {
-		writeOperationError(rw, http.StatusBadRequest, "unsupported_client_export_format", "AWG 3.x clients support .conf download only")
+		writeOperationError(rw, http.StatusBadRequest, "unsupported_client_export_format", "this client export format is not supported for the selected protocol profile")
 		return
 	}
 	http.NotFound(rw, r)
@@ -1328,7 +1328,7 @@ func (w *web) publicState(ctx context.Context, state config.State) map[string]an
 		profileMeta("awg_1_5", "1.5", "Modern", true, state),
 		profileMeta("awg_2_0", "2.0", "Modern", true, state),
 	}
-	if w.cfg.AWG3Experimental && buildinfo.AWG3RuntimeEnabled() {
+	if buildinfo.AWG3RuntimeEnabled() {
 		profiles = append(profiles, profileMeta("awg_3", "3.x", "Experimental", true, state))
 	}
 	return map[string]any{

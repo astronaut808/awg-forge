@@ -29,7 +29,7 @@ They do not include internal command output, paths, or secrets.
 ## Contract evolution
 
 The initial contract is a compatibility boundary for the bundled UI, not a
-promise of third-party API stability. Future multi-node or subscription work
+promise of third-party API stability. Future multi-node and external automation work
 will introduce a separately versioned `/api/v1` surface with scoped API tokens,
 TLS-only access, pagination, and an intentionally designed authentication model.
 It will not reuse browser session cookies as an external credential.

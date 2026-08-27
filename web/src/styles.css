@@ -490,6 +490,13 @@ textarea:focus-visible {
   padding: 14px 18px 0;
 }
 
+.profile-group-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .profile-group-head h3 {
   font-size: 22px;
 }
@@ -1096,6 +1103,10 @@ textarea {
   display: grid;
   grid-template-columns: minmax(420px, 1.4fr) minmax(280px, 0.8fr);
   gap: 12px;
+}
+
+.config-options.single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .config-option {

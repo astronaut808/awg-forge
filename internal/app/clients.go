@@ -378,6 +378,14 @@ type ClientExportContext struct {
 var ErrUnsupportedClientExportFormat = errors.New("client export format is not supported for this protocol profile")
 
 func (s *Service) ClientExportContext(id string) (ClientExportContext, error) {
+	return s.clientExportContext(id, true)
+}
+
+func (s *Service) ClientAmneziaVPNExportContext(id string) (ClientExportContext, error) {
+	return s.clientExportContext(id, false)
+}
+
+func (s *Service) clientExportContext(id string, allowAWG3 bool) (ClientExportContext, error) {
 	state, err := s.Init()
 	if err != nil {
 		return ClientExportContext{}, err
@@ -386,7 +394,7 @@ func (s *Service) ClientExportContext(id string) (ClientExportContext, error) {
 	if !ok {
 		return ClientExportContext{}, errors.New("client not found")
 	}
-	if tunnel.ProtocolProfileID == "awg_3" {
+	if tunnel.ProtocolProfileID == "awg_3" && !allowAWG3 {
 		return ClientExportContext{}, ErrUnsupportedClientExportFormat
 	}
 	conf, err := render.ClientConfig(state, tunnel, client)
@@ -399,7 +407,7 @@ func (s *Service) ClientExportContext(id string) (ClientExportContext, error) {
 }
 
 func (s *Service) ClientImportKey(id string) (string, config.Client, error) {
-	ctx, err := s.ClientExportContext(id)
+	ctx, err := s.ClientAmneziaVPNExportContext(id)
 	if err != nil {
 		return "", config.Client{}, err
 	}
