@@ -1,9 +1,6 @@
 package protocol
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestAWG3UsesStableMajorProfileID(t *testing.T) {
 	profile, ok := ByID("awg_3")
@@ -33,7 +30,6 @@ func TestAWG3DefaultsMatchPinnedRuntimeFormat(t *testing.T) {
 		"H2":                     "2",
 		"H3":                     "3",
 		"H4":                     "4",
-		"I1":                     defaultAWG3I1,
 		"ContentPaddingAddition": "10-100",
 		"RekeyAfterTime":         "100-120",
 		"RekeyTimeout":           "3-7",
@@ -121,13 +117,12 @@ func TestAWG3RejectsUint16Overflow(t *testing.T) {
 	}
 }
 
-func TestAWG3I1IsClientCompatibleSignature(t *testing.T) {
-	if !strings.HasPrefix(defaultAWG3I1, "<r 2><b 0x8580") {
-		t.Fatalf("unexpected AWG3 I1 default: %s", defaultAWG3I1)
-	}
-	if err := validateSignatureParam("I1", defaultAWG3I1); err != nil {
+func TestAWG3DefaultsUseQUICLikeI1(t *testing.T) {
+	params, err := (AWG3{}).GenerateDefaults()
+	if err != nil {
 		t.Fatal(err)
 	}
+	assertQUICLikeI1(t, params["I1"])
 }
 
 func TestAWG3BooleanParametersMatchPinnedToolsSyntax(t *testing.T) {

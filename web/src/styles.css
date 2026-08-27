@@ -696,13 +696,18 @@ section.panel.stack {
   height: 10px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: var(--ok);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok), transparent 82%);
-}
-
-.dimmed .status-dot {
   background: var(--faint);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--faint), transparent 82%);
+}
+
+.client-status-enabled .status-dot {
+  background: var(--brand);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand), transparent 82%);
+}
+
+.client-status-online .status-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok), transparent 82%);
 }
 
 .client-main {
@@ -917,6 +922,17 @@ input[type="checkbox"] {
   margin-top: -4px;
   color: var(--muted);
   font-weight: 650;
+}
+
+.form-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--bad);
+  border: 1px solid color-mix(in srgb, var(--bad), transparent 45%);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bad), transparent 92%);
+  overflow-wrap: anywhere;
 }
 
 .toggle-row {

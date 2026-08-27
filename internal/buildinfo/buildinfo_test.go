@@ -8,6 +8,6 @@ func TestAWG3RuntimeCannotBeEnabledByEnvironment(t *testing.T) {
 	t.Cleanup(func() { AWG3Runtime = previous })
 	t.Setenv("AWG3_RUNTIME", "true")
 	if AWG3RuntimeEnabled() {
-		t.Fatal("environment variable enabled AWG3 in a non-lab build")
+		t.Fatal("environment variable enabled AWG3 without compiled runtime support")
 	}
 }

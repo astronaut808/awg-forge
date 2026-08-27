@@ -297,32 +297,19 @@ Existing client configs do not need to change when only egress mode changes, bec
 
 Doctor checks WARP runtime, policy rules, and WARP-aware firewall expectations for WARP-enabled tunnels.
 
-## AWG 3.x laboratory profile
+## Experimental AWG 3.x profile
 
-AWG 3.1 runtime and compatible client releases exist upstream, but the 3.x implementation and cross-platform integration continue to evolve. AWG-Forge therefore keeps AWG 3.x as one opt-in laboratory profile outside the stable image and installer flow. This is an AWG-Forge support boundary, not a claim that every upstream 3.1 release is a prerelease. AWG 2.0 remains the default and supported production profile.
+AWG 3.x is included in the standard Docker image as one experimental profile. Selecting it in the Web UI is the explicit opt-in: the upstream 3.x implementation is still evolving, so enable and use the complete profile at your own risk. Existing tunnels are not converted, and AWG 2.0 remains the default and supported production profile.
 
-The lab build pins the `amneziawg-go` 3.1.20260814 and `amneziawg-tools` 3.1.20260812 release commits, forces AWG 3.x through userspace, and exposes the `awg_3` profile automatically. The capability is compiled into that image; a normal image cannot enable it through environment configuration. Earlier `amneziawg-go` 3.1 releases are not supported because a cookie reply with `RandomTrailers` could terminate the process.
+The image pins `amneziawg-go` 3.1.20260814 and `amneziawg-tools` 3.1.20260812, forces AWG 3.x through userspace, and exposes the `awg_3` profile without a separate environment flag, image, or Compose override. Earlier `amneziawg-go` 3.1 releases are not supported because a cookie reply with `RandomTrailers` could terminate the process. The profile reuses the same generated QUIC Initial-like `I1` mechanism as AWG 2.0.
 
-Build and start the lab image locally from the repository root:
+Use downloaded `.conf` files or the AmneziaWG QR, which encodes the same raw `.conf`. AmneziaVPN QR and `vpn://` remain disabled until those formats are verified independently. AmneziaVPN 5.0.1.5 is the minimum supported target for AWG 3.1 interoperability; do not use 5.0.0.5.
 
-```bash
-make docker-build-awg3-lab
-docker compose -f docker-compose.yml -f docker-compose.awg3-lab.yml up -d --force-recreate
-```
+`RandomTrailers` and `DisableCookies` default to `off`. The server runtime config keeps explicit `off` values so a live `syncconf` update can clear a previously enabled option, while client exports omit disabled options. Keep `RandomTrailers` off while the upstream transport-classification, first-packet, and MTU issues remain unresolved. Enabling `DisableCookies` disables WireGuard cookie replies and reduces handshake-flood protection, so keep it off outside controlled testing.
 
-Use downloaded `.conf` files or the AmneziaWG QR, which encodes the same raw `.conf`, for AWG 3.x testing. `RandomTrailers` and `DisableCookies` default to `off`. The server runtime config keeps explicit `off` values so a live `syncconf` update can clear a previously enabled option, while downloaded client configs omit disabled options to match the canonical AmneziaVPN export. Enabled options are rendered as `on`. Enable `RandomTrailers` only when both endpoints use compatible 3.1 implementations. Keep `DisableCookies` off unless a controlled test specifically requires it: enabling it disables WireGuard cookie replies and reduces handshake-flood protection.
+Manual end-to-end testing has confirmed `.conf` import, handshake, traffic, restart recovery, WAN egress, and WARP egress with compatible AmneziaVPN, AmneziaWG, and DefaultVPN clients. This does not guarantee compatibility with every platform, client build, network, or future 3.x runtime.
 
-AmneziaVPN QR, `vpn://`, kernel-module runtime, and production interoperability claims are intentionally out of scope. A tagged 3.1 kernel module exists, but this laboratory image deliberately keeps a single pinned userspace support boundary. AmneziaVPN 5.0.1.5 is the minimum supported target and the first stable client baseline for AWG 3.1 interoperability testing. It includes the fixed Apple parser and treats absent `RandomTrailers` and `DisableCookies` keys as disabled. The published 5.0.1.5 GitHub release baseline covers Windows, Linux, macOS, and Android; verify iOS availability and versioning separately. AmneziaVPN 5.0.0.5 must not be used for AWG 3.1. A stable client release does not make the AWG-Forge lab profile production-supported: test the exact 5.0.1.5+ client build and platform before relying on a lab tunnel.
-
-To return to the stable image, remove every AWG3 tunnel in the UI first, then start the normal Compose file:
-
-```bash
-docker compose up -d --force-recreate
-```
-
-If a lab tunnel remains after a rollback, the stable image starts without applying it and shows an explicit runtime error. Restore the lab image to export or remove that tunnel.
-
-There is no separate AWG3 environment flag. Selecting and running the separately built lab image is the explicit opt-in; the Web UI marks the profile as experimental.
+Before downgrading to a release that does not support `awg_3`, download any required client configs and remove all AWG 3.x tunnels. Older binaries cannot interpret that profile in `state.json`.
 
 ## APPLY_CONFIG
 

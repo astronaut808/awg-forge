@@ -45,8 +45,8 @@ go run ./cmd/awg-forge serve
 http://127.0.0.1:51821
 ```
 
-Чтобы при локальной проверке UI отображался лабораторный профиль AWG 3.x,
-используй то же окружение и включи capability lab-сборки:
+Стандартный Docker-образ содержит экспериментальный userspace runtime AWG 3.x.
+Для локальной проверки UI без применения конфигов явно включи ту же compiled capability:
 
 ```bash
 CONFIG_DIR=/private/tmp/awg-forge-dev \
@@ -57,8 +57,8 @@ APPLY_CONFIG=false \
 go run -ldflags='-X github.com/astronaut808/awg-forge/internal/buildinfo.AWG3Runtime=true' ./cmd/awg-forge serve
 ```
 
-Оставь `APPLY_CONFIG=false`. Команда включает профиль в локальном backend, но
-не добавляет закреплённые AWG 3.x runtime tools, которые входят в lab-образ.
+Оставь `APPLY_CONFIG=false`. Локальный `go run` не устанавливает закреплённые
+runtime tools AWG 3.x, которые входят в стандартный Docker-образ.
 
 ## Проверки перед коммитом
 

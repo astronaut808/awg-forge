@@ -225,10 +225,10 @@ func (s *Service) renderAllLocked() error {
 		if !isAWG3Profile(tunnel.ProtocolProfileID) || s.profileAvailable(tunnel.ProtocolProfileID) {
 			continue
 		}
-		tunnel.LastApplyError = fmt.Sprintf("%s lab runtime is unavailable; restore the lab image or remove this tunnel", profileDisplayName(tunnel.ProtocolProfileID))
+		tunnel.LastApplyError = fmt.Sprintf("%s runtime support is unavailable in this build; use the official Docker image or remove this tunnel", profileDisplayName(tunnel.ProtocolProfileID))
 		tunnel.UpdatedAt = time.Now().UTC()
 		changed = true
-		s.log("warn", "tunnel.apply.skipped", "AWG 3 tunnel skipped because the lab runtime is unavailable", tunnelAuditFields(*tunnel), nil)
+		s.log("warn", "tunnel.apply.skipped", "AWG 3 tunnel skipped because runtime support is unavailable in this build", tunnelAuditFields(*tunnel), nil)
 	}
 	if changed {
 		state.UpdatedAt = time.Now().UTC()

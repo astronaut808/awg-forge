@@ -1,3 +1,0 @@
-services:
-  awg-forge:
-    image: awg-forge:awg3-lab

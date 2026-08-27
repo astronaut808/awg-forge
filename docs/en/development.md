@@ -45,8 +45,8 @@ Open:
 http://127.0.0.1:51821
 ```
 
-To expose the AWG 3.x laboratory profile during a local UI review, use the
-same environment with the lab build capability enabled:
+The standard Docker image includes the experimental AWG 3.x userspace runtime.
+For a local no-apply UI review, expose the same compiled capability explicitly:
 
 ```bash
 CONFIG_DIR=/private/tmp/awg-forge-dev \
@@ -57,8 +57,8 @@ APPLY_CONFIG=false \
 go run -ldflags='-X github.com/astronaut808/awg-forge/internal/buildinfo.AWG3Runtime=true' ./cmd/awg-forge serve
 ```
 
-Keep `APPLY_CONFIG=false`. This enables the profile in the local backend but
-does not provide the pinned AWG 3.x runtime tools included in the lab image.
+Keep `APPLY_CONFIG=false`. A local `go run` does not install the pinned AWG 3.x
+runtime tools shipped in the standard Docker image.
 
 ## Pre-commit Checks
 

@@ -18,8 +18,6 @@ var awg3Keys = []string{
 	"RandomTrailers", "DisableCookies",
 }
 
-const defaultAWG3I1 = "<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>"
-
 var awg3ServerParamKeys = []string{
 	"Jc", "Jmin", "Jmax", "S1", "S2", "S3", "S4", "H1", "H2", "H3", "H4",
 	"ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime",
@@ -42,6 +40,10 @@ func (AWG3) DisplayName() string { return "AmneziaWG 3.x" }
 func (AWG3) Version() string     { return "3.x" }
 
 func (AWG3) GenerateDefaults() (config.ProtocolParams, error) {
+	i1, err := defaultQUICLikeI1()
+	if err != nil {
+		return nil, err
+	}
 	jc, err := randomInt(4, 6)
 	if err != nil {
 		return nil, err
@@ -81,7 +83,7 @@ func (AWG3) GenerateDefaults() (config.ProtocolParams, error) {
 		"H2":                     "2",
 		"H3":                     "3",
 		"H4":                     "4",
-		"I1":                     defaultAWG3I1,
+		"I1":                     i1,
 		"I2":                     "",
 		"I3":                     "",
 		"I4":                     "",

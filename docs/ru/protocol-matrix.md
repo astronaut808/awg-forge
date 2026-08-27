@@ -9,7 +9,7 @@ awg-forge — запускатор и менеджер существующих 
 | `awg_legacy_1_0` | Реализован | Рендерит Legacy / 1.0 поля `Jc`, `Jmin`, `Jmax`, `S1`, `S2`, `H1-H4`. Defaults генерируются для обфускации, а не для WireGuard fallback. |
 | `awg_1_5` | Реализован | Добавляет `I1-I5` signature/masking packets в клиентские конфиги. Defaults включают DNS-like `I1` и небольшую CPS-цепочку для `I2-I5`. |
 | `awg_2_0` | Реализован | Использует `I1-I5`, добавляет `S3/S4`, поддерживает ranges для `H1-H4`, валидирует непересечение ranges и рендерит fresh configs. Defaults используют генерируемый QUIC Initial-like `I1`. `.conf` импорт проверен на desktop и iOS с совместимыми AmneziaVPN builds. |
-| `awg_3` | Только лабораторный | Один экспериментальный профиль семейства AWG 3.x, доступный только в собранном локально lab-образе при явном opt-in. Использует закрепленные userspace-исходники `amneziawg-go` 3.1.20260814 и `amneziawg-tools` 3.1.20260812 и рендерит `HeaderProtectionKey`, AWG3 ranges, `RandomTrailers` и `DisableCookies`. Скачивание `.conf` и QR с тем же raw-конфигом для AmneziaWG поддерживаются; QR для AmneziaVPN, `vpn://`, kernel runtime и production-совместимость намеренно не поддерживаются. |
+| `awg_3` | Экспериментальный | Один профиль семейства AWG 3.x входит в стандартный образ и помечен как экспериментальный в Web UI. Использует закрепленные userspace-исходники `amneziawg-go` 3.1.20260814 и `amneziawg-tools` 3.1.20260812 и рендерит `HeaderProtectionKey`, AWG3 ranges, `RandomTrailers` и `DisableCookies`. Скачивание `.conf` и QR с тем же raw-конфигом для AmneziaWG поддерживаются; QR для AmneziaVPN, `vpn://`, kernel runtime и production-совместимость намеренно не поддерживаются. |
 
 ## Запланировано
 
@@ -17,20 +17,20 @@ awg-forge — запускатор и менеджер существующих 
 | --- | --- | --- |
 | `custom` | Запланирован | Зарезервирован под пользовательские protocol params после стабилизации validation rules. |
 
-## Границы лабораторного AWG 3.x
+## Границы экспериментального AWG 3.x
 
-Единый лабораторный профиль AWG 3.x построен по текущему self-hosted генератору AmneziaVPN и закрепленным release-ревизиям `amneziawg-go` 3.1.20260814 / `amneziawg-tools` 3.1.20260812. Он использует:
+Единый экспериментальный профиль AWG 3.x построен по текущему self-hosted генератору AmneziaVPN и закрепленным release-ревизиям `amneziawg-go` 3.1.20260814 / `amneziawg-tools` 3.1.20260812. Он использует:
 
 - `Jc`, `Jmin`, `Jmax`, `S1-S4`, `H1-H4`, `I1-I5`;
 - `HeaderProtectionKey`, который генерируется один раз для туннеля и не попадает в публичный API;
 - `ContentPaddingAddition`, `RekeyAfterTime`, `RekeyTimeout`, `RejectAfterTime`, `KeepaliveTimeout`, `MaxHandshakeAttempts` и `PersistentKeepalive` как одиночные значения либо возрастающие диапазоны `uint16`.
 - `RandomTrailers` и `DisableCookies` как state-значения upstream `on`/`off`; оба по умолчанию имеют значение `off`, server runtime config рендерит состояние явно, а client export не содержит выключенные опции.
 
-Числовые значения и диапазоны по умолчанию повторяют upstream-генератор клиента. Для чувствительных к безопасности переключателей AWG-Forge намеренно отличается: upstream включает `RandomTrailers` и `DisableCookies`, а лабораторный профиль оставляет оба выключенными до подтверждения совместимости endpoint и явного отказа от cookie-защиты. AWG3 parsing закрепленных tools принимает расширенные ranges как `uint16`; awg-forge отклоняет значения выше `65535`, а не допускает их последующее усечение upstream. При включенном header protection `S1-S4` должны быть не меньше `12`.
+Числовые значения и диапазоны по умолчанию повторяют upstream-генератор клиента. `I1` переиспользует механизм генерируемого QUIC Initial-like CPS из профиля 2.0. Чувствительные к безопасности переключатели `RandomTrailers` и `DisableCookies` по умолчанию выключены. AWG3 parsing закрепленных tools принимает расширенные ranges как `uint16`; awg-forge отклоняет значения выше `65535`, а не допускает их последующее усечение upstream. При включенном header protection `S1-S4` должны быть не меньше `12`.
 
-AWG3 принудительно запускается через закрепленный userspace runtime. `RandomTrailers` требует совместимого поведения 3.1 на обеих сторонах. `DisableCookies=on` отключает cookie replies и ослабляет защиту от handshake-нагрузки, поэтому вне контролируемого теста должен оставаться выключенным. Server config сохраняет явные значения `off`, потому что runtime update использует `syncconf`; скачиваемый client config не содержит выключенные опции и соответствует каноническому экспорту AmneziaVPN 5.0.1.5. Для interop-тестов используй AmneziaVPN 5.0.1.5+ и не используй 5.0.0.5 для AWG 3.1. Версия 5.0.1.5 является стабильным клиентским релизом для Windows, Linux, macOS и Android, но профиль AWG-Forge остается лабораторным до проверки более широкой матрицы платформ и полного lifecycle. QR для AmneziaWG содержит тот же проверенный raw `.conf`, что и скачиваемый файл. Не включай QR для AmneziaVPN, native JSON или `vpn://` import до их отдельной проверки.
+AWG3 принудительно запускается через закрепленный userspace runtime. Весь профиль экспериментальный, его включение и использование выполняются оператором на свой риск. Оставляй `RandomTrailers` выключенным, пока upstream не исправит проблемы классификации transport-пакетов, первого пакета и MTU. `DisableCookies=on` отключает cookie replies и ослабляет защиту от handshake-нагрузки, поэтому вне контролируемого теста должен оставаться выключенным. Server config сохраняет явные значения `off`, потому что runtime update использует `syncconf`; скачиваемый client config не содержит выключенные опции и соответствует каноническому экспорту AmneziaVPN 5.0.1.5. Для interop-тестов используй AmneziaVPN 5.0.1.5+ и не используй 5.0.0.5 для AWG 3.1. QR для AmneziaWG содержит тот же проверенный raw `.conf`, что и скачиваемый файл. Не включай QR для AmneziaVPN, native JSON или `vpn://` import до их отдельной проверки.
 
-Ручная end-to-end проверка текущего lab-образа подтвердила импорт `.conf`, handshake, передачу трафика, восстановление после restart, WAN egress и WARP egress с совместимыми актуальными клиентами AmneziaVPN, AmneziaWG и DefaultVPN. Это ограниченный лабораторный acceptance result, а не гарантия для каждой платформы, сборки клиента, сети или будущего 3.x runtime.
+Ручная end-to-end проверка стандартного образа подтвердила импорт `.conf`, handshake, передачу трафика, восстановление после restart, WAN egress и WARP egress с совместимыми актуальными клиентами AmneziaVPN, AmneziaWG и DefaultVPN. Это ограниченный acceptance result, а не гарантия для каждой платформы, сборки клиента, сети или будущего 3.x runtime.
 
 ## AWG 2.0
 
@@ -57,14 +57,17 @@ AWG3 принудительно запускается через закрепл
 
 ## Правила рендера
 
-| Поле | Legacy / 1.0 | AWG 1.5 | AWG 2.0 |
-| --- | --- | --- | --- |
-| `Jc/Jmin/Jmax` | server и client interface | server и client interface | server и client interface |
-| `S1/S2` | server и client interface | server и client interface | server и client interface |
-| `S3/S4` | не рендерится | не рендерится | server и client interface |
-| `H1-H4` | single values | single values | ranges by default |
-| `I1-I5` | не рендерится | client interface only | server и client interface |
-| `protocol_version` | не INI field | не INI field | только metadata для AmneziaVPN JSON import |
+| Поле | Legacy / 1.0 | AWG 1.5 | AWG 2.0 | AWG 3.x |
+| --- | --- | --- | --- | --- |
+| `Jc/Jmin/Jmax` | server и client interface | server и client interface | server и client interface | server и client interface |
+| `S1/S2` | server и client interface | server и client interface | server и client interface | server и client interface |
+| `S3/S4` | не рендерится | не рендерится | server и client interface | server и client interface |
+| `H1-H4` | single values | single values | ranges by default | server и client interface |
+| `I1-I5` | не рендерится | client interface only | server и client interface | server и client interface; `I1` создаётся общим QUIC Initial-like генератором |
+| `HeaderProtectionKey` | не рендерится | не рендерится | не рендерится | server и client interface; генерируется один раз для туннеля |
+| AWG 3.x timing ranges | не рендерятся | не рендерятся | не рендерятся | server и client interface |
+| `RandomTrailers/DisableCookies` | не рендерятся | не рендерятся | не рендерятся | явное состояние в server runtime config; в client export только включённые значения |
+| `protocol_version` | не INI field | не INI field | только metadata для AmneziaVPN JSON import | не INI field |
 
 ## Defaults
 
@@ -86,6 +89,15 @@ AWG 2.0:
 - `H1-H4`: crypto-random non-overlapping ranges шириной `30000..65535`;
 - `I1`: генерируется для каждого туннеля как `1200..1232` byte QUIC Initial-like CPS packet: randomized protected first byte, QUIC v1 marker, один из нескольких destination/source connection ID profiles, корректный QUIC varint length и runtime-random protected payload, разбитый на parser-safe randomized `<r ...>` chunks не больше `999` bytes каждый;
 - `I2-I5`: небольшая CPS-цепочка, аналогичная текущему 1.5 профилю.
+
+Экспериментальный AWG 3.x:
+
+- `Jc`: random `4..6`; `Jmin`: `10`; `Jmax`: `50`;
+- `S1/S2`: разные random-значения `12..149`; `S3`: random `12..63`; `S4`: `12`;
+- `H1-H4`: разные значения `1`, `2`, `3`, `4`, защищённые отдельным `HeaderProtectionKey` туннеля;
+- `I1`: тот же генерируемый `1200..1232` byte QUIC Initial-like CPS packet, что и в AWG 2.0; `I2-I5` пустые;
+- ranges padding и timing: `10-100`, `100-120`, `3-7`, `150-180`, `5-15`, `15-20`; `PersistentKeepalive`: `25-35`;
+- `RandomTrailers` и `DisableCookies`: `off`.
 
 Zero-valued obfuscation params считаются слабыми defaults, потому что all-zero behavior двигает поведение в сторону обычного WireGuard.
 
@@ -113,6 +125,9 @@ AWG 2.0 по умолчанию использует рандомизирова�
 - [Исправление парсера amneziawg-apple v3.1.3](https://github.com/amnezia-vpn/amneziawg-apple/pull/43)
 - [Стабильный релиз AmneziaVPN 5.0.1.5](https://github.com/amnezia-vpn/amnezia-client/releases/tag/5.0.1.5)
 - [Проблема cross-version совместимости AWG 3.1 в AmneziaVPN](https://github.com/amnezia-vpn/amnezia-client/issues/3016)
+- [Исправление классификации transport-пакетов при RandomTrailers](https://github.com/amnezia-vpn/amneziawg-go/pull/183)
+- [Исправление гонки первого пакета S4](https://github.com/amnezia-vpn/amneziawg-go/pull/184)
+- [Проблема MTU при RandomTrailers и ContentPaddingAddition](https://github.com/amnezia-vpn/amneziawg-go/issues/185)
 - [amnezia-client `protocols_defs.h`](https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/client/protocols/protocols_defs.h)
 - [amnezia-client `importController.cpp`](https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/client/ui/controllers/importController.cpp)
 - [RFC 9000, QUIC: A UDP-Based Multiplexed and Secure Transport](https://www.rfc-editor.org/rfc/rfc9000)

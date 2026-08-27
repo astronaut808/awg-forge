@@ -742,7 +742,7 @@ func TestAWG3ProtocolToggleDisablePreservesRuntimeResetAndCanonicalClientConfig(
 	}
 }
 
-func TestRenderAllSkipsAWG3WhenLabRuntimeIsUnavailable(t *testing.T) {
+func TestRenderAllSkipsAWG3WhenRuntimeSupportIsUnavailable(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
 	svc := app.New(cfg)
@@ -762,11 +762,11 @@ func TestRenderAllSkipsAWG3WhenLabRuntimeIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := state.Tunnels[1].LastApplyError; !strings.Contains(got, "lab runtime is unavailable") {
+	if got := state.Tunnels[1].LastApplyError; !strings.Contains(got, "runtime support is unavailable in this build") {
 		t.Fatalf("AWG3 unavailable state = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.ConfigDir, "tunnels", tunnel.InterfaceName, "server.conf")); !os.IsNotExist(err) {
-		t.Fatalf("AWG3 config was rendered without its lab runtime: %v", err)
+		t.Fatalf("AWG3 config was rendered without runtime support: %v", err)
 	}
 }
 

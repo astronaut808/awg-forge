@@ -171,7 +171,7 @@ func TestAWG3RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
 		"MaxHandshakeAttempts = 15-20",
 		"RandomTrailers = on",
 		"DisableCookies = off",
-		"# I1 = <r 2><b 0x8580",
+		"# I1 = " + params["I1"],
 	} {
 		if !strings.Contains(serverConfig, want) {
 			t.Fatalf("server config missing %q:\n%s", want, serverConfig)
@@ -186,7 +186,7 @@ func TestAWG3RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"I1 = <r 2><b 0x8580",
+		"I1 = " + params["I1"],
 		"HeaderProtectionKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 		"PersistentKeepalive = 25-35",
 		"RandomTrailers = on",
