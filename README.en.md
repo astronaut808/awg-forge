@@ -142,7 +142,7 @@ Backup/restore, firewall repair, support bundle, and audit log are available fro
 - [Development](docs/en/development.md)
 - [Security](docs/en/security.md)
 - [Browser control API contract](docs/en/api.md)
-- [Profile and compatibility matrix](docs/protocol-matrix.md)
+- [Profile and compatibility matrix](docs/en/protocol-matrix.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development
