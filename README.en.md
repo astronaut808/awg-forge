@@ -12,11 +12,13 @@ Self-hosted AmneziaWG control panel for Docker: Go backend, embedded Web UI, and
 - Safe default for the panel: the Web UI listens on `127.0.0.1`, not on the server's public interface.
 - Multiple independent tunnels on one VPS: different profiles, UDP ports, and egress scenarios without manually editing Docker port mappings.
 - Flexible IPv4 egress: a tunnel can exit directly through the server or through Cloudflare WARP.
+- Multiple AmneziaWG generations: stable profiles through 2.0 and a built-in experimental AWG 3.x profile without changing the production default.
 - Management and maintenance in one place: daily actions through the Web UI, diagnostics and automation through the CLI.
 
 ## Supported
 
-- AmneziaWG profiles: Legacy / 1.0, 1.5-oriented profile, and 2.0.
+- Stable AmneziaWG profiles: Legacy / 1.0, 1.5-oriented profile, and 2.0. New installations default to 2.0.
+- AWG 3.x is included in the standard image as an experimental profile with an explicit UI warning. Enable and use it at your own risk; AmneziaWG 2.0 remains the production default. The verified AWG 3.x import paths are downloaded `.conf` files and the AmneziaWG QR.
 - Tunnels: separate profiles, UDP ports, subnets, endpoint settings, and IPv4 egress.
 - IPv6 egress is not supported yet; generated client configs intentionally use `AllowedIPs = 0.0.0.0/0` without `::/0`.
 - Egress: `Server WAN` or Cloudflare WARP per tunnel.
@@ -140,6 +142,7 @@ Backup/restore, firewall repair, support bundle, and audit log are available fro
 - [Development](docs/en/development.md)
 - [Security](docs/en/security.md)
 - [Browser control API contract](docs/en/api.md)
+- [Profile and compatibility matrix](docs/en/protocol-matrix.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development

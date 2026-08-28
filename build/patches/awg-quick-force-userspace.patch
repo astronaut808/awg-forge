@@ -1,0 +1,8 @@
+diff --git a/src/wg-quick/linux.bash b/src/wg-quick/linux.bash
+--- a/src/wg-quick/linux.bash
++++ b/src/wg-quick/linux.bash
+@@ -89,0 +90,4 @@ add_if() {
++	if [[ ${AWG_QUICK_FORCE_USERSPACE:-0} == 1 ]]; then
++		cmd "${WG_QUICK_USERSPACE_IMPLEMENTATION:-amneziawg-go}" "$INTERFACE"
++		return
++	fi

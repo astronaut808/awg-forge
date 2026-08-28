@@ -77,10 +77,9 @@ docker port awg-forge
 
 ```bash
 docker exec awg-forge awg-forge doctor
-docker exec awg-forge awg show <interface>
 ```
 
-Do not publish full `awg show <interface> dump` output without redaction: it can contain the interface private key and preshared keys. Runtime output is useful for peers, endpoints, handshakes, and counters. AWG-Forge is the source for the selected profile, stale-config status, and whether a fresh client config is needed after client-facing tunnel changes. For AmneziaWG 2.0, use the `.conf` import fallback when the target client has compatibility limitations.
+Doctor reports runtime peers, handshakes, and transfer counters without exposing protocol secrets. Do not publish raw `awg show` output without redaction: AWG 3.x output includes `HeaderProtectionKey`, while `awg show <interface> dump` can also contain the interface private key and preshared keys. AWG-Forge is the source for the selected profile, stale-config status, and whether a fresh client config is needed after client-facing tunnel changes. For AmneziaWG 2.0, use the `.conf` import fallback when the target client has compatibility limitations.
 
 Record the network, time, client version, and packet-capture result before changing settings.
 
@@ -128,7 +127,7 @@ The bundle includes:
 - redacted config/state summary;
 - Doctor results;
 - database status metadata when the optional operational database is configured;
-- runtime `ip`, `iptables`, and `awg show` output;
+- runtime `ip` and `iptables` output; peer, handshake, and transfer diagnostics come from the redacted Doctor report;
 - config directory inventory without `.conf` contents.
 
 The bundle should not include:
@@ -331,7 +330,7 @@ docker exec awg-forge iptables -L FORWARD -v -n
 docker exec awg-forge iptables -t nat -L POSTROUTING -v -n
 ```
 
-do not increase for the tunnel subnet/interface, traffic did not reach the forwarding/NAT layer. Check `awg show <interface>`, stale links, fresh client config, and the correct protocol profile.
+do not increase for the tunnel subnet/interface, traffic did not reach the forwarding/NAT layer. Check the Doctor peer/handshake results, stale links, fresh client config, and the correct protocol profile.
 
 ## UI Unavailable
 

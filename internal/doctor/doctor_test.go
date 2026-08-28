@@ -77,6 +77,31 @@ func TestProtocolNotSupportedDetection(t *testing.T) {
 	}
 }
 
+func TestCheckWarpReportsLastApplyError(t *testing.T) {
+	c := &checker{}
+	c.checkWarp(config.Config{}, config.State{
+		Warp: config.Warp{
+			PrivateKey:     "private",
+			PeerPublicKey:  "peer",
+			Endpoint:       "warp.example:2408",
+			AddressV4:      "172.16.0.2/32",
+			LastApplyError: "awg-quick up warp0 failed",
+		},
+		Tunnels: []config.Tunnel{{
+			Name:       "awg3",
+			Enabled:    true,
+			EgressMode: config.EgressWarp,
+		}},
+	})
+
+	for _, result := range c.results {
+		if result.Level == "fail" && result.Area == "warp runtime" && strings.Contains(result.Message, "awg-quick up warp0 failed") {
+			return
+		}
+	}
+	t.Fatalf("WARP apply failure missing from Doctor results: %#v", c.results)
+}
+
 func TestRedactProcessLine(t *testing.T) {
 	got := redactProcessLine(`UNCONN 0 0 0.0.0.0:7443 0.0.0.0:* users:(("amneziawg-go",pid=12345,fd=7))`)
 	if strings.Contains(got, "pid=12345") {

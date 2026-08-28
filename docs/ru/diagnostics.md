@@ -77,10 +77,9 @@ docker port awg-forge
 
 ```bash
 docker exec awg-forge awg-forge doctor
-docker exec awg-forge awg show <interface>
 ```
 
-Не публикуй полный вывод `awg show <interface> dump` без редактирования: он может содержать private key интерфейса и preshared keys. Runtime output полезен для peers, endpoints, handshakes и counters. Источник данных AWG-Forge — выбранный profile, stale-config status и необходимость заново скачать client config после client-facing изменений туннеля. Для AmneziaWG 2.0 используй fallback через `.conf`, если у целевого клиента есть compatibility limitations.
+Doctor показывает runtime peers, handshakes и transfer counters без раскрытия protocol secrets. Не публикуй raw output `awg show` без редактирования: для AWG 3.x он содержит `HeaderProtectionKey`, а `awg show <interface> dump` также может содержать private key интерфейса и preshared keys. Источник данных AWG-Forge — выбранный profile, stale-config status и необходимость заново скачать client config после client-facing изменений туннеля. Для AmneziaWG 2.0 используй fallback через `.conf`, если у целевого клиента есть compatibility limitations.
 
 Зафиксируй сеть, время, версию клиента и результат packet capture до изменения настроек.
 
@@ -128,7 +127,7 @@ Bundle включает:
 - redacted config/state summary;
 - Doctor results;
 - database status metadata, если настроена optional operational database;
-- runtime output `ip`, `iptables`, `awg show`;
+- runtime output `ip` и `iptables`; сведения о peers, handshakes и transfer берутся из redacted Doctor report;
 - inventory config directory без содержимого `.conf`.
 
 Bundle не должен включать:
@@ -331,7 +330,7 @@ docker exec awg-forge iptables -L FORWARD -v -n
 docker exec awg-forge iptables -t nat -L POSTROUTING -v -n
 ```
 
-не растут для нужного tunnel subnet/interface, значит трафик не дошел до forwarding/NAT слоя. Проверь `awg show <interface>`, stale link, свежий client config и правильный protocol profile.
+не растут для нужного tunnel subnet/interface, значит трафик не дошел до forwarding/NAT слоя. Проверь результаты Doctor для peers/handshakes, stale link, свежий client config и правильный protocol profile.
 
 ## UI недоступен
 

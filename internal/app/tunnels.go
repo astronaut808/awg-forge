@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/astronaut808/awg-forge/internal/buildinfo"
 	"github.com/astronaut808/awg-forge/internal/config"
 	"github.com/astronaut808/awg-forge/internal/keys"
 	"github.com/astronaut808/awg-forge/internal/protocol"
@@ -73,7 +74,7 @@ func (s *Service) SuggestTunnel(profileID string) (TunnelSuggestion, error) {
 	if profileID == "" {
 		profileID = s.cfg.ProtocolProfile
 	}
-	if _, ok := protocol.ByID(profileID); !ok {
+	if !s.profileAvailable(profileID) {
 		return TunnelSuggestion{}, errors.New("unknown protocol profile")
 	}
 	state, err := s.initLocked()
@@ -180,6 +181,8 @@ func SuggestedTunnelSpec(profileID string) (name string, port int, subnet string
 		return "awg15", 51825, "10.15.0.0/24"
 	case "awg_2_0":
 		return "awg20", 51830, "10.20.0.0/24"
+	case "awg_3":
+		return "awg3", 51840, "10.30.0.0/24"
 	default:
 		return "awg0", 51820, "10.8.0.0/24"
 	}
@@ -232,6 +235,9 @@ func (s *Service) createTunnel(profileID, name, subnet string, port int, automat
 	defer s.mu.Unlock()
 	if profileID == "" {
 		profileID = s.cfg.ProtocolProfile
+	}
+	if !s.profileAvailable(profileID) {
+		return config.Tunnel{}, fmt.Errorf("unsupported protocol profile %q", profileID)
 	}
 	state, err := s.initLocked()
 	if err != nil {
@@ -658,7 +664,14 @@ func (s *Service) newTunnel(spec tunnelSpec) (config.Tunnel, error) {
 	if err != nil {
 		return config.Tunnel{}, err
 	}
+	secrets, err := protocol.GenerateSecrets(p)
+	if err != nil {
+		return config.Tunnel{}, err
+	}
 	if err := p.Validate(params); err != nil {
+		return config.Tunnel{}, err
+	}
+	if err := protocol.ValidateSecrets(p, secrets); err != nil {
 		return config.Tunnel{}, err
 	}
 	normalizedSubnet, _, err := normalizeIPv4CIDR(spec.IPv4Subnet)
@@ -687,11 +700,32 @@ func (s *Service) newTunnel(spec tunnelSpec) (config.Tunnel, error) {
 		ServerPublicKey:   pub,
 		ProtocolProfileID: spec.ProfileID,
 		ProtocolParams:    params,
+		ProtocolSecrets:   secrets,
 		ConfigRevision:    1,
 		Clients:           []config.Client{},
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}, nil
+}
+
+func (s *Service) profileAvailable(profileID string) bool {
+	switch profileID {
+	case "awg_3":
+		return buildinfo.AWG3RuntimeEnabled()
+	}
+	_, ok := protocol.ByID(profileID)
+	return ok
+}
+
+func isAWG3Profile(profileID string) bool {
+	return profileID == "awg_3"
+}
+
+func profileDisplayName(profileID string) string {
+	if profile, ok := protocol.ByID(profileID); ok {
+		return profile.DisplayName()
+	}
+	return profileID
 }
 
 func tunnelConfigChanged(old, next config.Tunnel) bool {

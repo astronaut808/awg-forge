@@ -21,4 +21,4 @@ Russian documentation:
 
 Reference:
 
-- [Protocol matrix](../protocol-matrix.md)
+- [Protocol matrix](protocol-matrix.md)

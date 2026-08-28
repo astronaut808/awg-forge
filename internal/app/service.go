@@ -219,10 +219,59 @@ func (s *Service) renderAllLocked() error {
 	if err != nil {
 		return err
 	}
-	for _, tunnel := range state.Tunnels {
-		if err := s.renderTunnelLocked(tunnel.ID, false); err != nil {
+	changed := false
+	for idx := range state.Tunnels {
+		tunnel := &state.Tunnels[idx]
+		if !isAWG3Profile(tunnel.ProtocolProfileID) || s.profileAvailable(tunnel.ProtocolProfileID) {
+			continue
+		}
+		tunnel.LastApplyError = fmt.Sprintf("%s runtime support is unavailable in this build; use the official Docker image or remove this tunnel", profileDisplayName(tunnel.ProtocolProfileID))
+		tunnel.UpdatedAt = time.Now().UTC()
+		changed = true
+		s.log("warn", "tunnel.apply.skipped", "AWG 3 tunnel skipped because runtime support is unavailable in this build", tunnelAuditFields(*tunnel), nil)
+	}
+	if changed {
+		state.UpdatedAt = time.Now().UTC()
+		if err := s.store.Save(state); err != nil {
 			return err
 		}
+	}
+	var tunnelIDs []string
+	for _, tunnel := range state.Tunnels {
+		if isAWG3Profile(tunnel.ProtocolProfileID) && !s.profileAvailable(tunnel.ProtocolProfileID) {
+			continue
+		}
+		tunnelIDs = append(tunnelIDs, tunnel.ID)
+	}
+	for _, tunnelID := range tunnelIDs {
+		state, err := s.initLocked()
+		if err != nil {
+			return err
+		}
+		if err := s.renderTunnelFromState(state, tunnelID, false, false); err != nil {
+			return err
+		}
+	}
+	if !s.cfg.ApplyConfig {
+		return nil
+	}
+	state, err = s.initLocked()
+	if err != nil {
+		return err
+	}
+	if !warpRuntimeRequired(state) {
+		return nil
+	}
+	now := time.Now().UTC()
+	if err := s.reconcileWarpRuntimeStatus(&state, now); err != nil {
+		if saveErr := s.store.Save(state); saveErr != nil {
+			return errors.Join(fmt.Errorf("WARP apply failed: %w", err), fmt.Errorf("save state failed: %w", saveErr))
+		}
+		s.log("warn", "warp.apply.failed", "WARP runtime apply failed but state was saved", warpAuditFields(state.Warp, state), err)
+		return nil
+	}
+	if err := s.store.Save(state); err != nil {
+		return err
 	}
 	return nil
 }
@@ -238,10 +287,10 @@ func (s *Service) renderTunnelLocked(tunnelID string, failOnApply bool) error {
 	if err != nil {
 		return err
 	}
-	return s.renderTunnelFromState(state, tunnelID, failOnApply)
+	return s.renderTunnelFromState(state, tunnelID, failOnApply, true)
 }
 
-func (s *Service) renderTunnelFromState(state config.State, tunnelID string, failOnApply bool) error {
+func (s *Service) renderTunnelFromState(state config.State, tunnelID string, failOnApply, reconcileWarp bool) error {
 	started := time.Now()
 	idx, ok := tunnelIndexByID(state, tunnelID)
 	if !ok {
@@ -269,19 +318,20 @@ func (s *Service) renderTunnelFromState(state config.State, tunnelID string, fai
 			s.log("warn", "tunnel.apply.failed", "runtime apply failed but state was saved", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
 			return nil
 		}
-		if err := s.reconcileWarpRuntime(state); err != nil {
-			state.Tunnels[idx].LastApplyError = err.Error()
-			state.Tunnels[idx].UpdatedAt = now
-			state.UpdatedAt = now
-			if saveErr := s.store.Save(state); saveErr != nil {
-				return errors.Join(fmt.Errorf("WARP apply failed: %w", err), fmt.Errorf("save state failed: %w", saveErr))
+		if reconcileWarp && warpRuntimeRequired(state) {
+			if err := s.reconcileWarpRuntimeStatus(&state, now); err != nil {
+				state.Tunnels[idx].UpdatedAt = now
+				state.UpdatedAt = now
+				if saveErr := s.store.Save(state); saveErr != nil {
+					return errors.Join(fmt.Errorf("WARP apply failed: %w", err), fmt.Errorf("save state failed: %w", saveErr))
+				}
+				if failOnApply {
+					s.log("error", "warp.apply.failed", "WARP runtime apply failed", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
+					return &ApplyError{Err: err}
+				}
+				s.log("warn", "warp.apply.failed", "WARP runtime apply failed but state was saved", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
+				return nil
 			}
-			if failOnApply {
-				s.log("error", "warp.apply.failed", "WARP runtime apply failed", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
-				return &ApplyError{Err: err}
-			}
-			s.log("warn", "warp.apply.failed", "WARP runtime apply failed but state was saved", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
-			return nil
 		}
 		state.Tunnels[idx].LastApplyAt = now
 		s.log("info", "tunnel.apply.succeeded", "runtime tunnel applied", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), nil)
@@ -362,8 +412,15 @@ func (s *Service) UpdateProtocol(profileID string, params config.ProtocolParams)
 }
 
 func (s *Service) UpdateTunnelProtocol(tunnelID, profileID string, params config.ProtocolParams) error {
+	return s.updateTunnelProtocol(tunnelID, profileID, params, false)
+}
+
+func (s *Service) updateTunnelProtocol(tunnelID, profileID string, params config.ProtocolParams, regenerateSecrets bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.profileAvailable(profileID) {
+		return fmt.Errorf("unsupported protocol profile %q", profileID)
+	}
 	p, ok := protocol.ByID(profileID)
 	if !ok {
 		return fmt.Errorf("unsupported protocol profile %q", profileID)
@@ -380,9 +437,6 @@ func (s *Service) UpdateTunnelProtocol(tunnelID, profileID string, params config
 			params[key] = value
 		}
 	}
-	if err := p.Validate(params); err != nil {
-		return err
-	}
 	state, err := s.initLocked()
 	if err != nil {
 		return err
@@ -391,6 +445,21 @@ func (s *Service) UpdateTunnelProtocol(tunnelID, profileID string, params config
 	if !ok {
 		return errors.New("tunnel not found")
 	}
+	secrets := state.Tunnels[idx].ProtocolSecrets
+	if _, usesSecrets := p.(protocol.SecretGeneratingProfile); !usesSecrets {
+		secrets = config.ProtocolSecrets{}
+	} else if state.Tunnels[idx].ProtocolProfileID != profileID || regenerateSecrets {
+		secrets, err = protocol.GenerateSecrets(p)
+		if err != nil {
+			return err
+		}
+	}
+	if err := p.Validate(params); err != nil {
+		return err
+	}
+	if err := protocol.ValidateSecrets(p, secrets); err != nil {
+		return err
+	}
 	previousState, err := cloneState(state)
 	if err != nil {
 		return err
@@ -398,6 +467,7 @@ func (s *Service) UpdateTunnelProtocol(tunnelID, profileID string, params config
 	now := time.Now().UTC()
 	state.Tunnels[idx].ProtocolProfileID = profileID
 	state.Tunnels[idx].ProtocolParams = params
+	state.Tunnels[idx].ProtocolSecrets = secrets
 	state.Tunnels[idx].ConfigRevision++
 	state.Tunnels[idx].UpdatedAt = now
 	state.UpdatedAt = now
@@ -427,6 +497,9 @@ func (s *Service) RegenerateProtocol(profileID string) error {
 }
 
 func (s *Service) RegenerateTunnelProtocol(tunnelID, profileID string) error {
+	if !s.profileAvailable(profileID) {
+		return fmt.Errorf("unsupported protocol profile %q", profileID)
+	}
 	p, ok := protocol.ByID(profileID)
 	if !ok {
 		return fmt.Errorf("unsupported protocol profile %q", profileID)
@@ -435,7 +508,7 @@ func (s *Service) RegenerateTunnelProtocol(tunnelID, profileID string) error {
 	if err != nil {
 		return err
 	}
-	return s.UpdateTunnelProtocol(tunnelID, profileID, params)
+	return s.updateTunnelProtocol(tunnelID, profileID, params, true)
 }
 
 func tunnelAuditFields(tunnel config.Tunnel) map[string]any {

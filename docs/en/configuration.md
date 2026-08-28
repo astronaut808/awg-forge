@@ -297,6 +297,20 @@ Existing client configs do not need to change when only egress mode changes, bec
 
 Doctor checks WARP runtime, policy rules, and WARP-aware firewall expectations for WARP-enabled tunnels.
 
+## Experimental AWG 3.x profile
+
+AWG 3.x is included in the standard Docker image as one experimental profile. Selecting it in the Web UI is the explicit opt-in: the upstream 3.x implementation is still evolving, so enable and use the complete profile at your own risk. Existing tunnels are not converted, and AWG 2.0 remains the default and supported production profile.
+
+The image pins `amneziawg-go` 3.1.20260814 and `amneziawg-tools` 3.1.20260812, forces AWG 3.x through userspace, and exposes the `awg_3` profile without a separate environment flag, image, or Compose override. Earlier `amneziawg-go` 3.1 releases are not supported because a cookie reply with `RandomTrailers` could terminate the process. The profile reuses the same generated QUIC Initial-like `I1` mechanism as AWG 2.0.
+
+Use downloaded `.conf` files or the AmneziaWG QR, which encodes the same raw `.conf`. AmneziaVPN QR and `vpn://` remain disabled until those formats are verified independently. AmneziaVPN 5.0.1.5 is the minimum supported target for AWG 3.1 interoperability; do not use 5.0.0.5.
+
+`RandomTrailers` and `DisableCookies` default to `off`. The server runtime config keeps explicit `off` values so a live `syncconf` update can clear a previously enabled option, while client exports omit disabled options. Keep `RandomTrailers` off while the upstream transport-classification, first-packet, and MTU issues remain unresolved. Enabling `DisableCookies` disables WireGuard cookie replies and reduces handshake-flood protection, so keep it off outside controlled testing.
+
+Manual end-to-end testing has confirmed `.conf` import, handshake, traffic, restart recovery, WAN egress, and WARP egress with compatible AmneziaVPN, AmneziaWG, and DefaultVPN clients. This does not guarantee compatibility with every platform, client build, network, or future 3.x runtime.
+
+Before downgrading to a release that does not support `awg_3`, download any required client configs and remove all AWG 3.x tunnels. Older binaries cannot interpret that profile in `state.json`.
+
 ## APPLY_CONFIG
 
 When `APPLY_CONFIG=true`, mutating operations update state/config files and apply changes to runtime.

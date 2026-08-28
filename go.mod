@@ -1,6 +1,6 @@
 module github.com/astronaut808/awg-forge
 
-go 1.26.5
+go 1.26.7
 
 require (
 	github.com/boombuler/barcode v1.1.0

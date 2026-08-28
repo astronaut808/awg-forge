@@ -1148,19 +1148,19 @@ func (w *web) clientQRAPI(rw http.ResponseWriter, r *http.Request, id string) {
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	conf, client, err := w.service.ClientConfigForDownload(id)
+	ctx, err := w.service.ClientExportContext(id)
 	if err != nil {
-		http.NotFound(rw, r)
+		writeClientExportError(rw, r, err)
 		return
 	}
-	code, err := qr.Encode(conf, qr.L, qr.Auto)
+	code, err := qr.Encode(ctx.RenderedConf, qr.L, qr.Auto)
 	if err != nil {
 		w.audit("warn", "client.qr.rejected", "client QR generation failed", map[string]any{"client_id": id}, err)
 		writeError(rw, http.StatusBadRequest, "client config is too large for QR")
 		return
 	}
 	w.audit("info", "client.qr.viewed", "client config QR viewed", map[string]any{"client_id": id}, nil)
-	if err := writeQRCodePNG(rw, code, configFilename(client)+".png"); err != nil {
+	if err := writeQRCodePNG(rw, code, configFilename(ctx.Client)+".png"); err != nil {
 		w.audit("warn", "client.qr.write_failed", "client QR response write failed", map[string]any{"client_id": id}, err)
 	}
 }
@@ -1170,9 +1170,9 @@ func (w *web) clientAmneziaVPNQRAPI(rw http.ResponseWriter, r *http.Request, id 
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	ctx, err := w.service.ClientExportContext(id)
+	ctx, err := w.service.ClientAmneziaVPNExportContext(id)
 	if err != nil {
-		writeError(rw, http.StatusNotFound, "not found")
+		writeClientExportError(rw, r, err)
 		return
 	}
 	if raw := r.URL.Query().Get("chunk"); raw != "" {
@@ -1207,8 +1207,8 @@ func (w *web) clientAmneziaVPNQRSeriesAPI(rw http.ResponseWriter, r *http.Reques
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if _, err := w.service.ClientExportContext(id); err != nil {
-		writeError(rw, http.StatusNotFound, "not found")
+	if _, err := w.service.ClientAmneziaVPNExportContext(id); err != nil {
+		writeClientExportError(rw, r, err)
 		return
 	}
 	writeJSON(rw, http.StatusOK, map[string]any{"chunks": 1})
@@ -1276,7 +1276,7 @@ func (w *web) clientImportKeyAPI(rw http.ResponseWriter, r *http.Request, id str
 	}
 	key, client, err := w.service.ClientImportKey(id)
 	if err != nil {
-		writeError(rw, http.StatusNotFound, "not found")
+		writeClientExportError(rw, r, err)
 		return
 	}
 	noStore(rw)
@@ -1286,6 +1286,14 @@ func (w *web) clientImportKeyAPI(rw http.ResponseWriter, r *http.Request, id str
 		"format":     "vpn-conf-base64url",
 		"warning":    "Experimental AmneziaVPN/DefaultVPN import key. Use .conf for production clients.",
 	})
+}
+
+func writeClientExportError(rw http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, app.ErrUnsupportedClientExportFormat) {
+		writeOperationError(rw, http.StatusBadRequest, "unsupported_client_export_format", "this client export format is not supported for the selected protocol profile")
+		return
+	}
+	http.NotFound(rw, r)
 }
 
 func (w *web) clientConfig(rw http.ResponseWriter, r *http.Request) {
@@ -1315,6 +1323,14 @@ func (w *web) publicState(ctx context.Context, state config.State) map[string]an
 		status, _ := w.service.TunnelStatusByID(tunnel.ID)
 		tunnels = append(tunnels, publicTunnelWithFirewall(tunnel, status, firewallSummaryForTunnel(tunnel, firewallReport, firewallErr), runtime[tunnel.ID], traffic[tunnel.ID]))
 	}
+	profiles := []map[string]any{
+		profileMeta("awg_legacy_1_0", "1.0", "Legacy", true, state),
+		profileMeta("awg_1_5", "1.5", "Modern", true, state),
+		profileMeta("awg_2_0", "2.0", "Modern", true, state),
+	}
+	if buildinfo.AWG3RuntimeEnabled() {
+		profiles = append(profiles, profileMeta("awg_3", "3.x", "Experimental", true, state))
+	}
 	return map[string]any{
 		"authenticated":       true,
 		"apply_enabled":       w.cfg.ApplyConfig,
@@ -1324,12 +1340,8 @@ func (w *web) publicState(ctx context.Context, state config.State) map[string]an
 		"tls":                 publicTLS(w.tls.ReadStatus(), w.cfg),
 		"build":               buildinfo.Current(),
 		"published_udp_ports": w.cfg.PublishedUDPPorts,
-		"profiles": []map[string]any{
-			profileMeta("awg_legacy_1_0", "1.0", "Legacy", true, state),
-			profileMeta("awg_1_5", "1.5", "Modern", true, state),
-			profileMeta("awg_2_0", "2.0", "Modern", true, state),
-		},
-		"tunnels": tunnels,
+		"profiles":            profiles,
+		"tunnels":             tunnels,
 	}
 }
 

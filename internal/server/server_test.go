@@ -35,6 +35,7 @@ import (
 
 	"github.com/astronaut808/awg-forge/internal/app"
 	"github.com/astronaut808/awg-forge/internal/backup"
+	"github.com/astronaut808/awg-forge/internal/buildinfo"
 	"github.com/astronaut808/awg-forge/internal/config"
 	"github.com/astronaut808/awg-forge/internal/firewall"
 	"github.com/astronaut808/awg-forge/internal/observability"
@@ -104,6 +105,60 @@ func TestWriteCachedJSONRejectsInvalidJSON(t *testing.T) {
 	}
 	if got, want := payload["error"], "failed to encode response"; got != want {
 		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
+
+func TestPublicTunnelOmitsProtocolSecrets(t *testing.T) {
+	tunnel := config.Tunnel{
+		ID:                "tunnel-3",
+		Name:              "awg3",
+		InterfaceName:     "awg3",
+		ProtocolProfileID: "awg_3",
+		ProtocolParams:    config.ProtocolParams{"Jc": "4"},
+		ProtocolSecrets:   config.ProtocolSecrets{HeaderProtectionKey: "must-not-leak"},
+	}
+	payload, err := json.Marshal(publicTunnel(tunnel, app.TunnelStatus{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), "must-not-leak") || strings.Contains(string(payload), "header_protection_key") {
+		t.Fatalf("public tunnel leaked protocol secret: %s", payload)
+	}
+}
+
+func TestPublicStateExposesAWG3OnlyWithLaboratoryRuntime(t *testing.T) {
+	previousRuntime := buildinfo.AWG3Runtime
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
+
+	cfg := config.Config{
+		ConfigDir:         t.TempDir(),
+		ServerHost:        "vpn.example.com",
+		ExternalInterface: "eth0",
+	}
+	w := &web{cfg: cfg, service: app.New(cfg)}
+
+	hasProfile := func(payload map[string]any, profileID string) bool {
+		t.Helper()
+		profiles, ok := payload["profiles"].([]map[string]any)
+		if !ok {
+			t.Fatalf("profiles has type %T", payload["profiles"])
+		}
+		for _, profile := range profiles {
+			if profile["id"] == profileID {
+				return true
+			}
+		}
+		return false
+	}
+
+	buildinfo.AWG3Runtime = "false"
+	if hasProfile(w.publicState(context.Background(), config.State{}), "awg_3") {
+		t.Fatal("stable runtime exposed the AWG 3.x profile")
+	}
+
+	buildinfo.AWG3Runtime = "true"
+	if !hasProfile(w.publicState(context.Background(), config.State{}), "awg_3") {
+		t.Fatal("laboratory runtime did not expose the AWG 3.x profile")
 	}
 }
 
@@ -1346,6 +1401,87 @@ func TestAmneziaVPNQRSeriesReturnsSingleChunk(t *testing.T) {
 	}
 	if payload.Chunks != 1 {
 		t.Fatalf("chunks = %d, want 1", payload.Chunks)
+	}
+}
+
+func TestAWG3ClientExportAPIsAllowRawConfQR(t *testing.T) {
+	previousRuntime := buildinfo.AWG3Runtime
+	buildinfo.AWG3Runtime = "true"
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
+
+	cfg := config.Config{
+		ConfigDir:           t.TempDir(),
+		TunnelName:          "awg0",
+		ServerHost:          "vpn.example.com",
+		ListenPort:          51820,
+		WebUIHost:           "127.0.0.1",
+		WebUIPort:           51821,
+		ExternalInterface:   "eth0",
+		IPv4Subnet:          "10.8.0.0/24",
+		DNS:                 "1.1.1.1",
+		AllowedIPs:          "0.0.0.0/0",
+		PersistentKeepalive: 0,
+		MTU:                 1420,
+		ProtocolProfile:     "awg_legacy_1_0",
+	}
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "Phone 3.x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &web{service: svc}
+
+	r := httptest.NewRequest(http.MethodGet, "/api/clients/"+client.ID+"/qr", nil)
+	rw := httptest.NewRecorder()
+	w.clientQRAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("raw QR status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	requireReadableQRCodePNG(t, rw.Body.Bytes())
+
+	blocked := []struct {
+		name   string
+		method string
+		path   string
+		handle func(http.ResponseWriter, *http.Request, string)
+	}{
+		{name: "AmneziaVPN QR", method: http.MethodGet, path: "/api/clients/" + client.ID + "/amnezia-vpn-qr", handle: w.clientAmneziaVPNQRAPI},
+		{name: "AmneziaVPN QR series", method: http.MethodGet, path: "/api/clients/" + client.ID + "/amnezia-vpn-qr-series", handle: w.clientAmneziaVPNQRSeriesAPI},
+		{name: "vpn import key", method: http.MethodPost, path: "/api/clients/" + client.ID + "/import-key", handle: w.clientImportKeyAPI},
+	}
+	for _, tt := range blocked {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.method == http.MethodPost {
+				r.Header.Set("Origin", "http://example.com")
+			}
+			rw := httptest.NewRecorder()
+			tt.handle(rw, r, client.ID)
+			if got, want := rw.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("status = %d body = %s, want %d", got, rw.Body.String(), want)
+			}
+			var response apiErrorResponse
+			if err := json.Unmarshal(rw.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := response.Code, "unsupported_client_export_format"; got != want {
+				t.Fatalf("error code = %q, want %q", got, want)
+			}
+		})
+	}
+
+	r = httptest.NewRequest(http.MethodGet, "/clients/config/"+client.ID, nil)
+	rw = httptest.NewRecorder()
+	w.clientConfig(rw, r)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf(".conf status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	if !strings.Contains(rw.Body.String(), "HeaderProtectionKey =") {
+		t.Fatal("AWG3 .conf response is missing HeaderProtectionKey")
 	}
 }
 

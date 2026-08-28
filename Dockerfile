@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM --platform=$BUILDPLATFORM golang:1.26.5-bookworm AS forge-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.7-bookworm AS forge-builder
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download
@@ -9,37 +9,31 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG AWG_FORGE_VERSION=dev
 ARG AWG_FORGE_COMMIT=unknown
-ARG AMNEZIAWG_GO_REF_OVERRIDE=
-ARG AMNEZIAWG_TOOLS_REF_OVERRIDE=
 RUN . ./build/amneziawg.refs \
-  && if [ -n "$AMNEZIAWG_GO_REF_OVERRIDE" ]; then AMNEZIAWG_GO_REF="$AMNEZIAWG_GO_REF_OVERRIDE"; fi \
-  && if [ -n "$AMNEZIAWG_TOOLS_REF_OVERRIDE" ]; then AMNEZIAWG_TOOLS_REF="$AMNEZIAWG_TOOLS_REF_OVERRIDE"; fi \
   && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
-  -ldflags="-s -w -X github.com/astronaut808/awg-forge/internal/buildinfo.Version=$AWG_FORGE_VERSION -X github.com/astronaut808/awg-forge/internal/buildinfo.Commit=$AWG_FORGE_COMMIT -X github.com/astronaut808/awg-forge/internal/buildinfo.AmneziaWGGoRef=$AMNEZIAWG_GO_REF -X github.com/astronaut808/awg-forge/internal/buildinfo.AmneziaWGToolsRef=$AMNEZIAWG_TOOLS_REF" \
+  -ldflags="-s -w -X github.com/astronaut808/awg-forge/internal/buildinfo.Version=$AWG_FORGE_VERSION -X github.com/astronaut808/awg-forge/internal/buildinfo.Commit=$AWG_FORGE_COMMIT -X github.com/astronaut808/awg-forge/internal/buildinfo.AmneziaWGGoRef=$AMNEZIAWG_GO_REF -X github.com/astronaut808/awg-forge/internal/buildinfo.AmneziaWGToolsRef=$AMNEZIAWG_TOOLS_REF -X github.com/astronaut808/awg-forge/internal/buildinfo.AWG3Runtime=true" \
   -o /out/awg-forge ./cmd/awg-forge
 
-FROM golang:1.26.5-bookworm AS awg-go-builder
+FROM golang:1.26.7-bookworm AS awg-go-builder
 RUN apt-get update && apt-get install -y --no-install-recommends git make ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY build/amneziawg.refs /tmp/amneziawg.refs
-ARG AMNEZIAWG_GO_REF_OVERRIDE=
 RUN . /tmp/amneziawg.refs \
-  && if [ -n "$AMNEZIAWG_GO_REF_OVERRIDE" ]; then AMNEZIAWG_GO_REF="$AMNEZIAWG_GO_REF_OVERRIDE"; fi \
   && git init . && git remote add origin https://github.com/amnezia-vpn/amneziawg-go \
   && git fetch --depth=1 origin "$AMNEZIAWG_GO_REF" \
   && git checkout --detach FETCH_HEAD
 RUN make && cp amneziawg-go /out-amneziawg-go
 
 FROM debian:bookworm AS tools-builder
-RUN apt-get update && apt-get install -y --no-install-recommends git make gcc libc6-dev pkg-config ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git make gcc libc6-dev pkg-config ca-certificates patch && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY build/amneziawg.refs /tmp/amneziawg.refs
-ARG AMNEZIAWG_TOOLS_REF_OVERRIDE=
 RUN . /tmp/amneziawg.refs \
-  && if [ -n "$AMNEZIAWG_TOOLS_REF_OVERRIDE" ]; then AMNEZIAWG_TOOLS_REF="$AMNEZIAWG_TOOLS_REF_OVERRIDE"; fi \
   && git init . && git remote add origin https://github.com/amnezia-vpn/amneziawg-tools \
   && git fetch --depth=1 origin "$AMNEZIAWG_TOOLS_REF" \
   && git checkout --detach FETCH_HEAD
+COPY build/patches/awg-quick-force-userspace.patch /tmp/awg-quick-force-userspace.patch
+RUN patch -p1 < /tmp/awg-quick-force-userspace.patch
 RUN make -C src WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no WITH_BASHCOMPLETION=no
 RUN make -C src install WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no WITH_BASHCOMPLETION=no DESTDIR=/out PREFIX=/usr
 
@@ -59,7 +53,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
 LABEL org.opencontainers.image.title="awg-forge" \
       org.opencontainers.image.version=$AWG_FORGE_VERSION \
       org.opencontainers.image.revision=$AWG_FORGE_COMMIT \
-      org.awg-forge.amneziawg-update-mode="manual"
+      org.awg-forge.amneziawg-update-mode="manual" \
+      org.awg-forge.awg3-runtime="true"
 ENV CONFIG_DIR=/etc/awg-forge \
     AWG_FORGE_VERSION=$AWG_FORGE_VERSION \
     AWG_FORGE_COMMIT=$AWG_FORGE_COMMIT \

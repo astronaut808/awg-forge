@@ -437,13 +437,8 @@ func runtimeCommands(cfg config.Config, state config.State) []runtimeCommand {
 		{Name: "sysctl-rp-filter-all", Args: []string{"sysctl", "net.ipv4.conf.all.rp_filter"}},
 		{Name: "sysctl-rp-filter-default", Args: []string{"sysctl", "net.ipv4.conf.default.rp_filter"}},
 		{Name: "sysctl-rp-filter-external", Args: []string{"sysctl", "net.ipv4.conf." + cfg.ExternalInterface + ".rp_filter"}},
-		{Name: "awg-show", Args: []string{"awg", "show"}},
 	}
 	for _, tunnel := range state.Tunnels {
-		cmds = append(cmds, runtimeCommand{
-			Name: "awg-show-" + safeName(tunnel.InterfaceName),
-			Args: []string{"awg", "show", tunnel.InterfaceName},
-		})
 		cmds = append(cmds, runtimeCommand{
 			Name: "ip-link-" + safeName(tunnel.InterfaceName),
 			Args: []string{"ip", "link", "show", tunnel.InterfaceName},
@@ -487,8 +482,6 @@ func runText(ctx context.Context, args ...string) string {
 
 func runtimeExecCommand(ctx context.Context, name string, args ...string) (*exec.Cmd, bool) {
 	switch name {
-	case "awg":
-		return exec.CommandContext(ctx, "awg", args...), true
 	case "ip":
 		return exec.CommandContext(ctx, "ip", args...), true
 	case "iptables":
@@ -523,8 +516,8 @@ func doctorText(results []doctor.Result) string {
 }
 
 var (
-	keyLineRE       = regexp.MustCompile(`(?m)^(\s*(?:private key|preshared key):\s+).+$`)
-	protocolParamRE = regexp.MustCompile(`(?mi)^(\s*(?:jc|jmin|jmax|s[1-4]|h[1-4]|i[1-5]):\s+).+$`)
+	keyLineRE       = regexp.MustCompile(`(?mi)^(\s*(?:private key|preshared key|header protection key):\s+).+$`)
+	protocolParamRE = regexp.MustCompile(`(?mi)^(\s*(?:jc|jmin|jmax|s[1-4]|h[1-4]|i[1-5]|content padding addition|rekey after time|rekey timeout|reject after time|keepalive timeout|max handshake attempts):\s+).+$`)
 	pubKeyLineRE    = regexp.MustCompile(`(?m)^(\s*(?:public key|peer):\s+)(\S+).*$`)
 )
 

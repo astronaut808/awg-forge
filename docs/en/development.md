@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Go `1.26.5`;
+- Go `1.26.7`;
 - Node.js `24.x` and npm for building the Web UI;
 - Deno `2.x` for frontend source linting;
 - `golangci-lint` `2.x` for Go linting;
@@ -44,6 +44,21 @@ Open:
 ```text
 http://127.0.0.1:51821
 ```
+
+The standard Docker image includes the experimental AWG 3.x userspace runtime.
+For a local no-apply UI review, expose the same compiled capability explicitly:
+
+```bash
+CONFIG_DIR=/private/tmp/awg-forge-dev \
+WEBUI_HOST=127.0.0.1 \
+WEBUI_PORT=51821 \
+PASSWORD=test \
+APPLY_CONFIG=false \
+go run -ldflags='-X github.com/astronaut808/awg-forge/internal/buildinfo.AWG3Runtime=true' ./cmd/awg-forge serve
+```
+
+Keep `APPLY_CONFIG=false`. A local `go run` does not install the pinned AWG 3.x
+runtime tools shipped in the standard Docker image.
 
 ## Pre-commit Checks
 
