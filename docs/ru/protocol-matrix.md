@@ -11,12 +11,6 @@ awg-forge — запускатор и менеджер существующих 
 | `awg_2_0` | Реализован | Использует `I1-I5`, добавляет `S3/S4`, поддерживает ranges для `H1-H4`, валидирует непересечение ranges и рендерит fresh configs. Defaults используют генерируемый QUIC Initial-like `I1`. `.conf` импорт проверен на desktop и iOS с совместимыми AmneziaVPN builds. |
 | `awg_3` | Экспериментальный | Один профиль семейства AWG 3.x входит в стандартный образ и помечен как экспериментальный в Web UI. Использует закрепленные userspace-исходники `amneziawg-go` 3.1.20260828 и `amneziawg-tools` 3.1.20260812 и рендерит `HeaderProtectionKey`, AWG3 ranges, `RandomTrailers` и `DisableCookies`. Скачивание `.conf` и QR с тем же raw-конфигом для AmneziaWG поддерживаются; QR для AmneziaVPN, `vpn://`, kernel runtime и production-совместимость намеренно не поддерживаются. |
 
-## Запланировано
-
-| Профиль | Статус | Описание |
-| --- | --- | --- |
-| `custom` | Запланирован | Зарезервирован под пользовательские protocol params после стабилизации validation rules. |
-
 ## Границы экспериментального AWG 3.x
 
 Единый экспериментальный профиль AWG 3.x построен по текущему self-hosted генератору AmneziaVPN и закрепленным release-ревизиям `amneziawg-go` 3.1.20260828 / `amneziawg-tools` 3.1.20260812. Он использует:
@@ -133,6 +127,4 @@ AWG 2.0 по умолчанию использует рандомизирова�
 - [Проблема MTU при RandomTrailers и ContentPaddingAddition](https://github.com/amnezia-vpn/amneziawg-go/issues/185)
 - [Исправление импорта MTU в AmneziaVPN](https://github.com/amnezia-vpn/amnezia-client/pull/3065)
 - [Отчет о несовпадении server/client MTU в AWG 3.1](https://github.com/amnezia-vpn/amnezia-client/issues/3089)
-- [amnezia-client `protocols_defs.h`](https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/client/protocols/protocols_defs.h)
-- [amnezia-client `importController.cpp`](https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/client/ui/controllers/importController.cpp)
 - [RFC 9000, QUIC: A UDP-Based Multiplexed and Secure Transport](https://www.rfc-editor.org/rfc/rfc9000)

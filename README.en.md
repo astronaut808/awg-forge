@@ -23,7 +23,7 @@ Self-hosted AmneziaWG control panel for Docker: Go backend, embedded Web UI, and
 - IPv6 egress is not supported yet; generated client configs intentionally use `AllowedIPs = 0.0.0.0/0` without `::/0`.
 - Egress: `Server WAN` or Cloudflare WARP per tunnel.
 - Web UI TLS: loopback HTTP, reverse proxy, manual certificates, or managed ACME for one public domain or short-lived public IP certificate.
-- Clients: create, download `.conf`, AmneziaWG QR, AmneziaVPN QR, `vpn://` key, enable/disable, expiration, delete.
+- Clients: create, enable/disable, expiration, delete, and profile-dependent import through `.conf`, AmneziaWG QR, AmneziaVPN QR, or `vpn://`.
 - Diagnostics: Doctor, firewall repair, client status, last seen, received/sent counters.
 - Maintenance Center: Doctor with contextual firewall repair, WARP, backup/restore verification, traffic, audit log, and support diagnostics.
 
@@ -98,7 +98,7 @@ WARP can be selected while creating a tunnel or enabled later from `Tunnel setti
 ## Startup Check
 
 1. Create a client in the UI.
-2. Open the client's `Config` and import through AmneziaVPN QR or a downloaded `.conf`.
+2. Open the client's `Config` and use one of the offered import methods. AWG 3.x provides `.conf` download and AmneziaWG QR only.
 3. Check IPv4 egress:
 
 ```bash

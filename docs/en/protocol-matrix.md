@@ -11,12 +11,6 @@ awg-forge is a launcher and manager for existing AmneziaWG implementations. It d
 | `awg_2_0` | Implemented | Uses `I1-I5`, adds `S3` and `S4`, supports `H1-H4` ranges, validates non-overlapping header ranges, and renders fresh tunnel/client configs. Defaults use a generated QUIC Initial-like `I1` CPS signature. `.conf` import has been validated on desktop and iOS clients with compatible AmneziaVPN builds. |
 | `awg_3` | Experimental | One AWG 3.x family profile included in the standard image and marked experimental in the Web UI. It uses pinned `amneziawg-go` 3.1.20260828 and `amneziawg-tools` 3.1.20260812 userspace sources and renders `HeaderProtectionKey`, AWG3 ranges, `RandomTrailers`, and `DisableCookies`. Downloaded `.conf` and its raw AmneziaWG QR are supported; AmneziaVPN QR, `vpn://`, kernel runtime, and production compatibility are intentionally not supported. |
 
-## Planned, Not Implemented
-
-| Profile | Status | Notes |
-| --- | --- | --- |
-| `custom` | Planned | Reserved for explicit user-provided config parameters after validation rules are clear. |
-
 ## AWG 3.x Experimental Boundaries
 
 The single AWG 3.x experimental profile is derived from the current AmneziaVPN self-hosted generator and the pinned `amneziawg-go` 3.1.20260828 / `amneziawg-tools` 3.1.20260812 release revisions. It uses:
@@ -46,6 +40,8 @@ Official Amnezia docs describe 2.0 changes versus 1.5:
 - removes older `j1-j3` and `itime`;
 - keeps `I1-I5`, introduced by 1.5.
 
+## Parameter Ranges
+
 Official 2.0 parameter ranges:
 
 | Parameter | Range / syntax | Notes |
@@ -56,18 +52,6 @@ Official 2.0 parameter ranges:
 | `Jc` | `0..10` in official docs | Number of junk packets after `I1-I5`. `amneziawg-go` README still says recommended `4..12`, so awg-forge should stay inside `0..10` for compatibility with the docs and AmneziaVPN UI. |
 | `Jmin`, `Jmax` | `64..1024`, with `Jmin <= Jmax` | Junk packet size range. Keep `Jmax` below the effective system MTU to avoid fragmentation. |
 | `H1-H4` | single `uint32` value or range `x-y` | 2.0 should use ranges by default. Ranges must not overlap. |
-
-The `amneziawg-go` README confirms the config syntax for header ranges: either a single value like `1234` or a range like `123-456`. It also says unspecified parameters are treated as zero.
-
-Amnezia client `dev` maps config keys directly to INI names:
-
-- `Jc`, `Jmin`, `Jmax`;
-- `S1`, `S2`, `S3`, `S4`;
-- `H1`, `H2`, `H3`, `H4`;
-- `I1`, `I2`, `I3`, `I4`, `I5`;
-- `protocol_version` in imported native JSON, with AWG 2.0 represented as `"2"`.
-
-The current Amnezia client import path detects AWG 2.0 when a WireGuard/AWG config has all required Legacy fields plus both `S3` and `S4`. It detects AWG 1.5 when it has Legacy fields plus at least one `I1-I5`, but no `S3/S4`.
 
 ## Rendering Rules By Profile
 
@@ -148,6 +132,4 @@ Still requires broader validation:
 - [RandomTrailers and ContentPaddingAddition MTU issue](https://github.com/amnezia-vpn/amneziawg-go/issues/185)
 - [AmneziaVPN MTU import fix](https://github.com/amnezia-vpn/amnezia-client/pull/3065)
 - [AmneziaVPN AWG 3.1 server/client MTU mismatch report](https://github.com/amnezia-vpn/amnezia-client/issues/3089)
-- [amnezia-client `protocols_defs.h`](https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/client/protocols/protocols_defs.h)
-- [amnezia-client `importController.cpp`](https://raw.githubusercontent.com/amnezia-vpn/amnezia-client/dev/client/ui/controllers/importController.cpp)
 - [RFC 9000, QUIC: A UDP-Based Multiplexed and Secure Transport](https://www.rfc-editor.org/rfc/rfc9000)
