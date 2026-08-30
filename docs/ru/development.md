@@ -12,6 +12,7 @@
 
 ```bash
 make test
+make test-race
 make vet
 make build
 make ui-check
@@ -19,11 +20,16 @@ make ui-build
 make api-contract
 make lint-go
 make lint-js
+make lint-shell
+make lint-docker
+make lint-actions
+make lint-actions-security
 make quality
 make ci
 make security
 make security-fast
 make docker-build
+make docker-smoke IMAGE=awg-forge:local
 ```
 
 ## Локальный запуск UI
@@ -79,6 +85,8 @@ git diff --check
 - `deno lint web/src`;
 - `npm run quality:aislop`, который запускает `aislop ci` с проектным `.aislop/config.yml`.
 
+Для pull request отдельно запускаются jobs `Security`, `Race` и проверка Docker-образа. Security job выполняет `govulncheck`, Gitleaks, focused Semgrep и Trivy filesystem scans, ShellCheck, Hadolint, actionlint и offline pedantic-аудит zizmor. Docker job запускает собранный образ с отключённым runtime apply, выполняет вход в API, проверяет встроенные AmneziaWG binaries и parser сгенерированного конфига, перезапускает контейнер и убеждается, что конфигурация туннеля осталась доступной и корректно разбирается.
+
 Aislop CI gate сейчас падает при score ниже `80`. Config исключает воспроизводимые generated Web UI assets и словари локализации, которые дают scanner-only шум. Source warnings стоит оставлять видимыми, если finding не является документированным false positive.
 
 ## Security Checks
@@ -89,12 +97,23 @@ Aislop CI gate сейчас падает при score ниже `80`. Config ис
 make security
 ```
 
-`make security` запускает `gitleaks`, `trivy` и Semgrep registry rules. Команде может понадобиться доступ к сети для баз сканеров и правил.
+`make security` запускает `govulncheck` для AWG-Forge и корневого daemon package из точного `AMNEZIAWG_GO_REF`, а также ShellCheck, Hadolint, actionlint, zizmor, Gitleaks, Trivy и полный набор Semgrep registry rules. Команде может понадобиться доступ к сети для pinned upstream source, Go tools, баз сканеров и правил. Zizmor дополняет actionlint и проверяет permissions, опасные triggers, mutable action references, обработку untrusted input и другие security-свойства GitHub Actions.
 
 Для более быстрой локальной проверки:
 
 ```bash
 make security-fast
+```
+
+Быстрый gate использует focused Semgrep rules и findings Trivy уровня HIGH/CRITICAL. Локально Gitleaks проверяет историю, достижимую из `HEAD`; в pull request проверка ограничена диапазоном коммитов PR. Проверка Docker-образа блокирует исправляемые HIGH/CRITICAL уязвимости пакетов операционной системы. Findings в application dependencies остаются информационными; blocking source checks отдельно определяют достижимость в AWG-Forge и точном pinned AmneziaWG daemon, не отклоняя неиспользуемые packages из более широкого upstream module.
+
+Два Semgrep findings, требующие финальный non-root `USER`, подавляются точечно только на соответствующих инструкциях `ENTRYPOINT` и `CMD` runtime Dockerfile. AWG-Forge намеренно запускается от root с capabilities, выданными через Compose, поскольку управляет TUN-интерфейсами, маршрутами и firewall в host network namespace. Для безопасного отказа от root потребуется вынести эти операции в отдельный привилегированный helper; repository-wide исключения правил скрыли бы findings в будущих Dockerfiles и не допускаются.
+
+После локальной сборки можно запустить тот же непривилегированный image smoke test, который используется в pull request:
+
+```bash
+make docker-build
+make docker-smoke IMAGE=awg-forge:local
 ```
 
 Generated frontend assets в `internal/server/static/assets/` и встроенные fonts исключены из Semgrep. Source of truth для UI — `web/src/`; generated output проверяется через `npm run ui:build` и `git diff --exit-code -- internal/server/static`.

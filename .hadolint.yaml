@@ -1,0 +1,4 @@
+ignored:
+  # Debian packages follow the selected base image repositories. Exact apt
+  # version pins would make routine security updates and multi-arch builds brittle.
+  - DL3008

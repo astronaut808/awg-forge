@@ -24,6 +24,7 @@
 
 ### Security
 
+- Added pull-request security and race checks for reachable Go vulnerabilities in AWG-Forge and the pinned `amneziawg-go` daemon, secret scanning, focused Semgrep rules, shell/Docker/workflow linting, GitHub Actions security analysis, and data races; Docker validation now smoke-tests the built image and blocks fixed HIGH/CRITICAL operating-system vulnerabilities while reporting application dependency findings for reachability triage.
 - Added stable safe API error codes and bound idempotency keys to request bodies, preventing a reused key from replaying a different mutation.
 - Updated the Go build toolchain to `1.26.7` and the frontend lockfile to `nanoid` `3.3.18` to include current security fixes.
 - Removed raw `awg show` output from support bundles and the Support UI because AWG 3.x exposes `HeaderProtectionKey`; AWG 3.x protocol secrets are also covered by defense-in-depth text redaction.
