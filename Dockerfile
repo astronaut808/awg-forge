@@ -33,9 +33,9 @@ RUN . /tmp/amneziawg.refs \
   && git fetch --depth=1 origin "$AMNEZIAWG_TOOLS_REF" \
   && git checkout --detach FETCH_HEAD
 COPY build/patches/awg-quick-force-userspace.patch /tmp/awg-quick-force-userspace.patch
-RUN patch -p1 < /tmp/awg-quick-force-userspace.patch
-RUN make -C src WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no WITH_BASHCOMPLETION=no
-RUN make -C src install WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no WITH_BASHCOMPLETION=no DESTDIR=/out PREFIX=/usr
+RUN patch -p1 < /tmp/awg-quick-force-userspace.patch \
+  && make -C src WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no WITH_BASHCOMPLETION=no \
+  && make -C src install WITH_WGQUICK=yes WITH_SYSTEMDUNITS=no WITH_BASHCOMPLETION=no DESTDIR=/out PREFIX=/usr
 
 FROM debian:bookworm-slim
 ARG AWG_FORGE_VERSION=dev
@@ -43,6 +43,9 @@ ARG AWG_FORGE_COMMIT=unknown
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash ca-certificates dumb-init iproute2 iptables nftables procps openresolv \
   && rm -rf /var/lib/apt/lists/*
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 COPY --from=forge-builder /out/awg-forge /usr/local/bin/awg-forge
 COPY --from=awg-go-builder /out-amneziawg-go /usr/local/bin/amneziawg-go
 COPY --from=tools-builder /out/usr/bin/awg /usr/local/bin/awg
@@ -64,5 +67,9 @@ ENV CONFIG_DIR=/etc/awg-forge \
     EXTERNAL_INTERFACE=eth0 \
     APPLY_CONFIG=true
 VOLUME ["/etc/awg-forge"]
+# The service intentionally runs as root to manage host-network TUN interfaces,
+# routes, and firewall rules with the capabilities granted by Compose.
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "/usr/local/bin/docker-entrypoint.sh"]
+# nosemgrep: dockerfile.security.missing-user.missing-user
 CMD ["serve"]
