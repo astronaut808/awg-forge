@@ -150,6 +150,38 @@ func TestAutoMTUIsOmitted(t *testing.T) {
 	}
 }
 
+func TestAWG3ExplicitMTUMatchesServerAndClientConfigs(t *testing.T) {
+	state := testState(true)
+	params, err := (protocol.AWG3{}).GenerateDefaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Tunnels[0].ProtocolProfileID = "awg_3"
+	state.Tunnels[0].ProtocolParams = params
+	state.Tunnels[0].ProtocolSecrets.HeaderProtectionKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	state.Tunnels[0].MTU = 1280
+
+	serverConfig, err := render.ServerConfig(state, state.Tunnels[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientConfig, err := render.ClientConfig(state, state.Tunnels[0], state.Tunnels[0].Clients[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rendered := range []struct {
+		side   string
+		config string
+	}{
+		{side: "server", config: serverConfig},
+		{side: "client", config: clientConfig},
+	} {
+		if !strings.Contains(rendered.config, "\nMTU = 1280\n") {
+			t.Fatalf("%s config missing explicit AWG3 MTU:\n%s", rendered.side, rendered.config)
+		}
+	}
+}
+
 func TestAWG3RendersClientAndServerFieldsInExpectedSections(t *testing.T) {
 	state := testState(true)
 	params, err := (protocol.AWG3{}).GenerateDefaults()

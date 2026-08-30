@@ -279,7 +279,7 @@ Each tunnel can use one of two egress modes:
 - `Server WAN`: client traffic leaves through the server external interface from `EXTERNAL_INTERFACE`;
 - `Cloudflare WARP`: client traffic leaves through a shared `warp0` outbound interface.
 
-WARP is not an AmneziaWG protocol profile. It is an outbound routing mode for existing tunnels. This means Legacy / 1.0, AWG 1.5, and AWG 2.0 tunnels can independently choose WAN or WARP egress.
+WARP is not an AmneziaWG protocol profile. It is an outbound routing mode for existing tunnels. Every available tunnel profile, including experimental AWG 3.x, can independently choose WAN or WARP egress.
 
 Recommended flow:
 
@@ -301,11 +301,13 @@ Doctor checks WARP runtime, policy rules, and WARP-aware firewall expectations f
 
 AWG 3.x is included in the standard Docker image as one experimental profile. Selecting it in the Web UI is the explicit opt-in: the upstream 3.x implementation is still evolving, so enable and use the complete profile at your own risk. Existing tunnels are not converted, and AWG 2.0 remains the default and supported production profile.
 
-The image pins `amneziawg-go` 3.1.20260814 and `amneziawg-tools` 3.1.20260812, forces AWG 3.x through userspace, and exposes the `awg_3` profile without a separate environment flag, image, or Compose override. Earlier `amneziawg-go` 3.1 releases are not supported because a cookie reply with `RandomTrailers` could terminate the process. The profile reuses the same generated QUIC Initial-like `I1` mechanism as AWG 2.0.
+The image pins `amneziawg-go` 3.1.20260828 and `amneziawg-tools` 3.1.20260812, forces AWG 3.x through userspace, and exposes the `awg_3` profile without a separate environment flag, image, or Compose override. The profile reuses the same generated QUIC Initial-like `I1` mechanism as AWG 2.0.
 
 Use downloaded `.conf` files or the AmneziaWG QR, which encodes the same raw `.conf`. AmneziaVPN QR and `vpn://` remain disabled until those formats are verified independently. AmneziaVPN 5.0.1.5 is the minimum supported target for AWG 3.1 interoperability; do not use 5.0.0.5.
 
-`RandomTrailers` and `DisableCookies` default to `off`. The server runtime config keeps explicit `off` values so a live `syncconf` update can clear a previously enabled option, while client exports omit disabled options. Keep `RandomTrailers` off while the upstream transport-classification, first-packet, and MTU issues remain unresolved. Enabling `DisableCookies` disables WireGuard cookie replies and reduces handshake-flood protection, so keep it off outside controlled testing.
+Generated Header Protection settings follow the upstream compatibility rules. `RandomTrailers` and `DisableCookies` default to `off`; keep both disabled outside controlled testing. `DisableCookies` reduces handshake-flood protection even though it suppresses only outgoing Cookie Reply messages. Exact parameter rules, runtime constraints, known upstream issues, validation status, and source links are maintained in the [protocol matrix](protocol-matrix.md#awg-3x-experimental-boundaries).
+
+When an explicit tunnel MTU is configured, awg-forge writes the same value to both server and client `.conf` files. For AWG 3.x interoperability testing, use `1280` as the conservative fallback instead of `Auto` when the path MTU is unknown. Some current AmneziaVPN import paths can replace a server-provided MTU with a platform default; that upstream fix is still pending, so verify the effective MTU on both ends when a handshake succeeds but large packets stall.
 
 Manual end-to-end testing has confirmed `.conf` import, handshake, traffic, restart recovery, WAN egress, and WARP egress with compatible AmneziaVPN, AmneziaWG, and DefaultVPN clients. This does not guarantee compatibility with every platform, client build, network, or future 3.x runtime.
 

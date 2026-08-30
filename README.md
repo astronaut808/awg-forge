@@ -23,7 +23,7 @@ Self-hosted панель управления AmneziaWG для Docker: Go backen
 - IPv6 egress пока не поддерживается; клиентские конфиги намеренно используют `AllowedIPs = 0.0.0.0/0` без `::/0`.
 - Egress: `Server WAN` или Cloudflare WARP на уровне отдельного туннеля.
 - TLS Web UI: loopback HTTP, reverse proxy, manual certificates или управляемый ACME для одного публичного домена либо короткоживущего сертификата публичного IP.
-- Клиенты: создание, скачивание `.conf`, AmneziaWG QR, AmneziaVPN QR, `vpn://` ключ, enable/disable, expiration, delete.
+- Клиенты: создание, enable/disable, expiration, delete и зависящие от профиля способы импорта через `.conf`, AmneziaWG QR, AmneziaVPN QR или `vpn://`.
 - Диагностика: Doctor, firewall repair, client status, last seen, received/sent counters.
 - Maintenance Center: Doctor с контекстным firewall repair, WARP, проверкой backup/restore, трафиком, audit log и support diagnostics.
 
@@ -100,7 +100,7 @@ WARP можно выбрать при создании туннеля или в�
 ## Проверка после запуска
 
 1. Создай клиента в UI.
-2. Открой `Config` у клиента и импортируй через AmneziaVPN QR или скачанный `.conf`.
+2. Открой `Config` у клиента и используй один из предложенных способов импорта. Для AWG 3.x доступны только скачивание `.conf` и QR для AmneziaWG.
 3. Проверь IPv4 egress:
 
 ```bash

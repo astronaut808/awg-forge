@@ -5,7 +5,7 @@
 ### Added
 
 - Added an OpenAPI 3.1 browser control API contract for the stable tunnel, client, traffic-limit, and WARP control surface, with compatibility tests for the contract envelope.
-- Added one experimental AWG 3.x profile to the standard image with pinned `amneziawg-go` 3.1.20260814 and `amneziawg-tools` 3.1.20260812 userspace sources, validated `.conf` interoperability through compatible clients over WAN and WARP, and guarded `RandomTrailers` and `DisableCookies` controls that default to `off`. AWG 2.0 remains the default profile.
+- Added one experimental AWG 3.x profile to the standard image with pinned `amneziawg-go` 3.1.20260828 and `amneziawg-tools` 3.1.20260812 userspace sources, validated `.conf` interoperability through compatible clients over WAN and WARP, and guarded `RandomTrailers` and `DisableCookies` controls that default to `off`. AWG 2.0 remains the default profile.
 - Added raw `.conf` QR export for AWG 3.x clients importing through AmneziaWG, while keeping unverified AmneziaVPN QR and `vpn://` formats disabled.
 
 ### Changed
@@ -16,6 +16,7 @@
 - Reused the existing generated QUIC Initial-like `I1` default for AWG 3.x instead of maintaining a separate signature default.
 - Simplified tunnel cards by removing repeated interface/profile labels, and made client state colors unambiguous: green for online, blue for enabled, and gray for disabled or expired.
 - Hide empty protocol filters on the tunnel dashboard while keeping every supported profile available when creating a tunnel, and keep AWG 3.x client import options limited to verified `.conf`-based paths.
+- Updated the pinned AWG 3.x userspace runtime to `amneziawg-go` 3.1.20260828 for current upstream UDP-window padding and `DisableCookies` under-load fixes; unresolved `RandomTrailers` classification issues remain guarded by the experimental status and an `off` default.
 
 ### Fixed
 
