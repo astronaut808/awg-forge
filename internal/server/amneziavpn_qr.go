@@ -71,6 +71,16 @@ type amneziaVPNLastConfig struct {
 	I3   string `json:"I3,omitempty"`
 	I4   string `json:"I4,omitempty"`
 	I5   string `json:"I5,omitempty"`
+
+	HeaderProtectionKey    string `json:"HeaderProtectionKey,omitempty"`
+	ContentPaddingAddition string `json:"ContentPaddingAddition,omitempty"`
+	RekeyAfterTime         string `json:"RekeyAfterTime,omitempty"`
+	RekeyTimeout           string `json:"RekeyTimeout,omitempty"`
+	RejectAfterTime        string `json:"RejectAfterTime,omitempty"`
+	KeepaliveTimeout       string `json:"KeepaliveTimeout,omitempty"`
+	MaxHandshakeAttempts   string `json:"MaxHandshakeAttempts,omitempty"`
+	RandomTrailers         string `json:"RandomTrailers,omitempty"`
+	DisableCookies         string `json:"DisableCookies,omitempty"`
 }
 
 func buildAmneziaVPNClientConfig(ctx app.ClientExportContext) ([]byte, error) {
@@ -91,13 +101,17 @@ func buildAmneziaVPNClientConfig(ctx app.ClientExportContext) ([]byte, error) {
 	// AmneziaVPN compatibility investigation.
 	port := strconv.Itoa(ctx.Tunnel.ListenPort)
 	params := ctx.Tunnel.ProtocolParams
+	persistentKeepalive := strconv.Itoa(ctx.Tunnel.Keepalive)
+	if ctx.Tunnel.ProtocolProfileID == "awg_3" {
+		persistentKeepalive = params["PersistentKeepalive"]
+	}
 	last := amneziaVPNLastConfig{
 		AllowedIPs:          []string{ctx.Tunnel.AllowedIPs},
 		ClientIP:            ctx.Client.IPv4Address + "/32",
 		ClientPrivateKey:    ctx.Client.PrivateKey,
 		Config:              ctx.RenderedConf,
 		HostName:            host,
-		PersistentKeepalive: strconv.Itoa(ctx.Tunnel.Keepalive),
+		PersistentKeepalive: persistentKeepalive,
 		Port:                ctx.Tunnel.ListenPort,
 		PresharedKey:        ctx.Client.PresharedKey,
 		ServerPublicKey:     ctx.Tunnel.ServerPublicKey,
@@ -118,6 +132,17 @@ func buildAmneziaVPNClientConfig(ctx app.ClientExportContext) ([]byte, error) {
 		I4:                  params["I4"],
 		I5:                  params["I5"],
 	}
+	if ctx.Tunnel.ProtocolProfileID == "awg_3" {
+		last.HeaderProtectionKey = ctx.Tunnel.ProtocolSecrets.HeaderProtectionKey
+		last.ContentPaddingAddition = params["ContentPaddingAddition"]
+		last.RekeyAfterTime = params["RekeyAfterTime"]
+		last.RekeyTimeout = params["RekeyTimeout"]
+		last.RejectAfterTime = params["RejectAfterTime"]
+		last.KeepaliveTimeout = params["KeepaliveTimeout"]
+		last.MaxHandshakeAttempts = params["MaxHandshakeAttempts"]
+		last.RandomTrailers = enabledAWGToggle(params["RandomTrailers"])
+		last.DisableCookies = enabledAWGToggle(params["DisableCookies"])
+	}
 	if ctx.Tunnel.MTU > 0 {
 		last.MTU = strconv.Itoa(ctx.Tunnel.MTU)
 	}
@@ -127,7 +152,9 @@ func buildAmneziaVPNClientConfig(ctx app.ClientExportContext) ([]byte, error) {
 	}
 
 	protocolVersion := "1"
-	if ctx.Tunnel.ProtocolProfileID == "awg_2_0" || (params["S3"] != "" && params["S4"] != "") {
+	if ctx.Tunnel.ProtocolProfileID == "awg_3" {
+		protocolVersion = "3.1"
+	} else if ctx.Tunnel.ProtocolProfileID == "awg_2_0" || (params["S3"] != "" && params["S4"] != "") {
 		protocolVersion = "2"
 	}
 	outer := amneziaVPNConfig{
@@ -147,6 +174,13 @@ func buildAmneziaVPNClientConfig(ctx app.ClientExportContext) ([]byte, error) {
 	}
 	outer.DNS1, outer.DNS2 = firstIPv4DNS(ctx.Tunnel.DNS)
 	return json.Marshal(outer)
+}
+
+func enabledAWGToggle(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "on") {
+		return "on"
+	}
+	return ""
 }
 
 func buildAmneziaVPNQRPayload(ctx app.ClientExportContext) (string, error) {

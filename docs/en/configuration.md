@@ -303,7 +303,7 @@ AWG 3.x is included in the standard Docker image as one experimental profile. Se
 
 The image pins `amneziawg-go` 3.1.20260828 and `amneziawg-tools` 3.1.20260812, forces AWG 3.x through userspace, and exposes the `awg_3` profile without a separate environment flag, image, or Compose override. The profile reuses the same generated QUIC Initial-like `I1` mechanism as AWG 2.0.
 
-Use downloaded `.conf` files or the AmneziaWG QR, which encodes the same raw `.conf`. AmneziaVPN QR and `vpn://` remain disabled until those formats are verified independently. AmneziaVPN 5.0.1.5 is the minimum supported target for AWG 3.1 interoperability; do not use 5.0.0.5.
+Client export supports downloaded `.conf`, the AmneziaWG QR containing that raw config, a typed structured AmneziaVPN QR, and `vpn://` containing base64url-encoded raw `.conf`. AmneziaVPN 5.0.1.5 is the minimum supported target for AWG 3.1 interoperability; do not use 5.0.0.5. `.conf` remains the stable fallback for client- or platform-specific import failures.
 
 Generated Header Protection settings follow the upstream compatibility rules. `RandomTrailers` and `DisableCookies` default to `off`; keep both disabled outside controlled testing. `DisableCookies` reduces handshake-flood protection even though it suppresses only outgoing Cookie Reply messages. Exact parameter rules, runtime constraints, known upstream issues, validation status, and source links are maintained in the [protocol matrix](protocol-matrix.md#awg-3x-experimental-boundaries).
 

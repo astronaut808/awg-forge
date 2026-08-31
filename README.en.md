@@ -18,7 +18,7 @@ Self-hosted AmneziaWG control panel for Docker: Go backend, embedded Web UI, and
 ## Supported
 
 - Stable AmneziaWG profiles: Legacy / 1.0, 1.5-oriented profile, and 2.0. New installations default to 2.0.
-- AWG 3.x is included in the standard image as an experimental profile with an explicit UI warning. Enable and use it at your own risk; AmneziaWG 2.0 remains the production default. The verified AWG 3.x import paths are downloaded `.conf` files and the AmneziaWG QR.
+- AWG 3.x is included in the standard image as an experimental profile with an explicit UI warning. Enable and use it at your own risk; AmneziaWG 2.0 remains the production default. Available exports are `.conf`, AmneziaWG QR, structured AmneziaVPN QR for version 5.0.1.5+, and `vpn://`; `.conf` remains the stable fallback.
 - Tunnels: separate profiles, UDP ports, subnets, endpoint settings, and IPv4 egress.
 - IPv6 egress is not supported yet; generated client configs intentionally use `AllowedIPs = 0.0.0.0/0` without `::/0`.
 - Egress: `Server WAN` or Cloudflare WARP per tunnel.
@@ -98,7 +98,7 @@ WARP can be selected while creating a tunnel or enabled later from `Tunnel setti
 ## Startup Check
 
 1. Create a client in the UI.
-2. Open the client's `Config` and use one of the offered import methods. AWG 3.x provides `.conf` download and AmneziaWG QR only.
+2. Open the client's `Config` and use one of the offered import methods. For AWG 3.x, use AmneziaVPN 5.0.1.5+ and fall back to `.conf` if a platform does not accept QR or `vpn://` import.
 3. Check IPv4 egress:
 
 ```bash

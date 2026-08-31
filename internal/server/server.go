@@ -1150,7 +1150,7 @@ func (w *web) clientQRAPI(rw http.ResponseWriter, r *http.Request, id string) {
 	}
 	ctx, err := w.service.ClientExportContext(id)
 	if err != nil {
-		writeClientExportError(rw, r, err)
+		writeClientExportError(rw, r)
 		return
 	}
 	code, err := qr.Encode(ctx.RenderedConf, qr.L, qr.Auto)
@@ -1170,9 +1170,9 @@ func (w *web) clientAmneziaVPNQRAPI(rw http.ResponseWriter, r *http.Request, id 
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	ctx, err := w.service.ClientAmneziaVPNExportContext(id)
+	ctx, err := w.service.ClientExportContext(id)
 	if err != nil {
-		writeClientExportError(rw, r, err)
+		writeClientExportError(rw, r)
 		return
 	}
 	if raw := r.URL.Query().Get("chunk"); raw != "" {
@@ -1207,8 +1207,8 @@ func (w *web) clientAmneziaVPNQRSeriesAPI(rw http.ResponseWriter, r *http.Reques
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if _, err := w.service.ClientAmneziaVPNExportContext(id); err != nil {
-		writeClientExportError(rw, r, err)
+	if _, err := w.service.ClientExportContext(id); err != nil {
+		writeClientExportError(rw, r)
 		return
 	}
 	writeJSON(rw, http.StatusOK, map[string]any{"chunks": 1})
@@ -1276,7 +1276,7 @@ func (w *web) clientImportKeyAPI(rw http.ResponseWriter, r *http.Request, id str
 	}
 	key, client, err := w.service.ClientImportKey(id)
 	if err != nil {
-		writeClientExportError(rw, r, err)
+		writeClientExportError(rw, r)
 		return
 	}
 	noStore(rw)
@@ -1288,11 +1288,7 @@ func (w *web) clientImportKeyAPI(rw http.ResponseWriter, r *http.Request, id str
 	})
 }
 
-func writeClientExportError(rw http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, app.ErrUnsupportedClientExportFormat) {
-		writeOperationError(rw, http.StatusBadRequest, "unsupported_client_export_format", "this client export format is not supported for the selected protocol profile")
-		return
-	}
+func writeClientExportError(rw http.ResponseWriter, r *http.Request) {
 	http.NotFound(rw, r)
 }
 
