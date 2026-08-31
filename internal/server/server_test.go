@@ -1404,7 +1404,7 @@ func TestAmneziaVPNQRSeriesReturnsSingleChunk(t *testing.T) {
 	}
 }
 
-func TestAWG3ClientExportAPIsAllowRawConfQR(t *testing.T) {
+func TestAWG3ClientExportAPIs(t *testing.T) {
 	previousRuntime := buildinfo.AWG3Runtime
 	buildinfo.AWG3Runtime = "true"
 	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
@@ -1443,35 +1443,51 @@ func TestAWG3ClientExportAPIsAllowRawConfQR(t *testing.T) {
 	}
 	requireReadableQRCodePNG(t, rw.Body.Bytes())
 
-	blocked := []struct {
-		name   string
-		method string
-		path   string
-		handle func(http.ResponseWriter, *http.Request, string)
-	}{
-		{name: "AmneziaVPN QR", method: http.MethodGet, path: "/api/clients/" + client.ID + "/amnezia-vpn-qr", handle: w.clientAmneziaVPNQRAPI},
-		{name: "AmneziaVPN QR series", method: http.MethodGet, path: "/api/clients/" + client.ID + "/amnezia-vpn-qr-series", handle: w.clientAmneziaVPNQRSeriesAPI},
-		{name: "vpn import key", method: http.MethodPost, path: "/api/clients/" + client.ID + "/import-key", handle: w.clientImportKeyAPI},
+	r = httptest.NewRequest(http.MethodGet, "/api/clients/"+client.ID+"/amnezia-vpn-qr", nil)
+	rw = httptest.NewRecorder()
+	w.clientAmneziaVPNQRAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("AmneziaVPN QR status = %d body = %s, want %d", got, rw.Body.String(), want)
 	}
-	for _, tt := range blocked {
-		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(tt.method, tt.path, nil)
-			if tt.method == http.MethodPost {
-				r.Header.Set("Origin", "http://example.com")
-			}
-			rw := httptest.NewRecorder()
-			tt.handle(rw, r, client.ID)
-			if got, want := rw.Code, http.StatusBadRequest; got != want {
-				t.Fatalf("status = %d body = %s, want %d", got, rw.Body.String(), want)
-			}
-			var response apiErrorResponse
-			if err := json.Unmarshal(rw.Body.Bytes(), &response); err != nil {
-				t.Fatal(err)
-			}
-			if got, want := response.Code, "unsupported_client_export_format"; got != want {
-				t.Fatalf("error code = %q, want %q", got, want)
-			}
-		})
+	if got, want := rw.Header().Get("Cache-Control"), "no-store"; got != want {
+		t.Fatalf("AmneziaVPN QR Cache-Control = %q, want %q", got, want)
+	}
+	requireReadableQRCodePNG(t, rw.Body.Bytes())
+
+	r = httptest.NewRequest(http.MethodGet, "/api/clients/"+client.ID+"/amnezia-vpn-qr-series", nil)
+	rw = httptest.NewRecorder()
+	w.clientAmneziaVPNQRSeriesAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("AmneziaVPN QR series status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	var series struct {
+		Chunks int `json:"chunks"`
+	}
+	if err := json.Unmarshal(rw.Body.Bytes(), &series); err != nil {
+		t.Fatal(err)
+	}
+	if series.Chunks != 1 {
+		t.Fatalf("chunks = %d, want 1", series.Chunks)
+	}
+
+	r = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:51821/api/clients/"+client.ID+"/import-key", nil)
+	rw = httptest.NewRecorder()
+	w.clientImportKeyAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("vpn import key status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	var importKey struct {
+		Value string `json:"import_key"`
+	}
+	if err := json.Unmarshal(rw.Body.Bytes(), &importKey); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(importKey.Value, "vpn://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(decoded), "HeaderProtectionKey =") {
+		t.Fatal("AWG3 vpn import key is missing HeaderProtectionKey")
 	}
 
 	r = httptest.NewRequest(http.MethodGet, "/clients/config/"+client.ID, nil)
@@ -1482,6 +1498,82 @@ func TestAWG3ClientExportAPIsAllowRawConfQR(t *testing.T) {
 	}
 	if !strings.Contains(rw.Body.String(), "HeaderProtectionKey =") {
 		t.Fatal("AWG3 .conf response is missing HeaderProtectionKey")
+	}
+}
+
+func TestBuildAmneziaVPNQRPayloadAWG3Shape(t *testing.T) {
+	ctx := amneziaVPNTestAWG3ExportContext(t)
+	payload, err := buildAmneziaVPNQRPayload(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonBytes := decodeAmneziaVPNQRPayload(t, payload).JSONBytes
+	var outer amneziaVPNConfig
+	if err := json.Unmarshal(jsonBytes, &outer); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := outer.Containers[0].AWG.ProtocolVersion, "3.1"; got != want {
+		t.Fatalf("protocol_version = %q, want %q", got, want)
+	}
+	var last map[string]any
+	if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+		t.Fatal(err)
+	}
+	wantFields := map[string]string{
+		"HeaderProtectionKey":    ctx.Tunnel.ProtocolSecrets.HeaderProtectionKey,
+		"ContentPaddingAddition": ctx.Tunnel.ProtocolParams["ContentPaddingAddition"],
+		"RekeyAfterTime":         ctx.Tunnel.ProtocolParams["RekeyAfterTime"],
+		"RekeyTimeout":           ctx.Tunnel.ProtocolParams["RekeyTimeout"],
+		"RejectAfterTime":        ctx.Tunnel.ProtocolParams["RejectAfterTime"],
+		"KeepaliveTimeout":       ctx.Tunnel.ProtocolParams["KeepaliveTimeout"],
+		"MaxHandshakeAttempts":   ctx.Tunnel.ProtocolParams["MaxHandshakeAttempts"],
+		"persistent_keep_alive":  ctx.Tunnel.ProtocolParams["PersistentKeepalive"],
+		"mtu":                    "1280",
+	}
+	for key, want := range wantFields {
+		if got := last[key]; got != want {
+			t.Fatalf("last_config %s = %#v, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{"RandomTrailers", "DisableCookies"} {
+		if _, ok := last[key]; ok {
+			t.Fatalf("disabled toggle %s must be omitted: %#v", key, last)
+		}
+	}
+	if configText, _ := last["config"].(string); !strings.Contains(configText, "HeaderProtectionKey =") || strings.Contains(configText, "RandomTrailers = off") {
+		t.Fatalf("unexpected AWG3 rendered config in last_config:\n%s", configText)
+	}
+
+	for _, tt := range []struct {
+		value string
+		want  string
+	}{
+		{value: "on", want: "on"},
+		{value: " ON ", want: "on"},
+		{value: "off", want: ""},
+		{value: "", want: ""},
+	} {
+		if got := enabledAWGToggle(tt.value); got != tt.want {
+			t.Fatalf("enabledAWGToggle(%q) = %q, want %q", tt.value, got, tt.want)
+		}
+	}
+
+	ctx.Tunnel.ProtocolParams["RandomTrailers"] = "on"
+	ctx.Tunnel.ProtocolParams["DisableCookies"] = "on"
+	jsonBytes, err = buildAmneziaVPNClientConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(jsonBytes, &outer); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"RandomTrailers", "DisableCookies"} {
+		if got, want := last[key], "on"; got != want {
+			t.Fatalf("enabled last_config %s = %#v, want %q", key, got, want)
+		}
 	}
 }
 
@@ -1702,6 +1794,34 @@ func TestBuildAmneziaVPNClientConfigOmitsEmptyOptionalParams(t *testing.T) {
 	}
 }
 
+func TestBuildAmneziaVPNClientConfigDoesNotPromoteLegacyProfileFromExtraAWG3State(t *testing.T) {
+	ctx := amneziaVPNTestExportContext(t)
+	ctx.Tunnel.ProtocolParams["ContentPaddingAddition"] = "10-100"
+	ctx.Tunnel.ProtocolParams["RandomTrailers"] = "on"
+	ctx.Tunnel.ProtocolSecrets.HeaderProtectionKey = "must-not-be-exported"
+
+	jsonBytes, err := buildAmneziaVPNClientConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outer amneziaVPNConfig
+	if err := json.Unmarshal(jsonBytes, &outer); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := outer.Containers[0].AWG.ProtocolVersion, "2"; got != want {
+		t.Fatalf("protocol_version = %q, want %q", got, want)
+	}
+	var last map[string]any
+	if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"HeaderProtectionKey", "ContentPaddingAddition", "RandomTrailers"} {
+		if _, ok := last[key]; ok {
+			t.Fatalf("AWG 2.0 export contains AWG 3.x field %s: %#v", key, last)
+		}
+	}
+}
+
 type decodedAmneziaVPNPayload struct {
 	JSONBytes []byte
 	JSON      map[string]any
@@ -1778,6 +1898,43 @@ func amneziaVPNTestExportContext(t *testing.T) app.ClientExportContext {
 	}
 	svc := app.New(cfg)
 	client, err := svc.AddClient("Phone QR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := svc.ClientExportContext(client.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx
+}
+
+func amneziaVPNTestAWG3ExportContext(t *testing.T) app.ClientExportContext {
+	t.Helper()
+	previousRuntime := buildinfo.AWG3Runtime
+	buildinfo.AWG3Runtime = "true"
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
+
+	cfg := config.Config{
+		ConfigDir:           t.TempDir(),
+		TunnelName:          "awg0",
+		ServerHost:          "vpn.example.com",
+		ListenPort:          51820,
+		WebUIHost:           "127.0.0.1",
+		WebUIPort:           51821,
+		ExternalInterface:   "eth0",
+		IPv4Subnet:          "10.8.0.0/24",
+		DNS:                 "1.1.1.1",
+		AllowedIPs:          "0.0.0.0/0",
+		PersistentKeepalive: 25,
+		MTU:                 1280,
+		ProtocolProfile:     "awg_legacy_1_0",
+	}
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "Phone 3.x")
 	if err != nil {
 		t.Fatal(err)
 	}

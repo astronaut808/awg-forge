@@ -129,7 +129,7 @@ PASSWORD=...
 
 ## После установки
 
-Открой UI, создай клиента, открой `Config` и используй один из предложенных способов импорта. Для AWG 3.x доступны только скачивание `.conf` и QR для AmneziaWG. Затем проверь IPv4 egress:
+Открой UI, создай клиента, открой `Config` и используй один из предложенных способов импорта. AWG 3.x поддерживает `.conf`, QR для AmneziaWG, QR для AmneziaVPN и `vpn://`; используй AmneziaVPN 5.0.1.5+ и оставляй `.conf` как fallback. Затем проверь IPv4 egress:
 
 ```bash
 curl -4 https://ifconfig.co

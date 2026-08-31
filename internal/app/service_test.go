@@ -569,7 +569,7 @@ func TestAWG3RequiresLaboratoryRuntime(t *testing.T) {
 	}
 }
 
-func TestAWG3ClientExportSupportsConfAndRawContext(t *testing.T) {
+func TestAWG3ClientExportSupportsConfBasedFormats(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
 	svc := app.New(cfg)
@@ -596,11 +596,19 @@ func TestAWG3ClientExportSupportsConfAndRawContext(t *testing.T) {
 	if ctx.RenderedConf != conf {
 		t.Fatal("raw QR export context differs from the downloaded .conf")
 	}
-	if _, err := svc.ClientAmneziaVPNExportContext(client.ID); !errors.Is(err, app.ErrUnsupportedClientExportFormat) {
-		t.Fatalf("ClientAmneziaVPNExportContext error = %v, want ErrUnsupportedClientExportFormat", err)
+	key, returnedClient, err := svc.ClientImportKey(client.ID)
+	if err != nil {
+		t.Fatalf("ClientImportKey failed: %v", err)
 	}
-	if _, _, err := svc.ClientImportKey(client.ID); !errors.Is(err, app.ErrUnsupportedClientExportFormat) {
-		t.Fatalf("ClientImportKey error = %v, want ErrUnsupportedClientExportFormat", err)
+	if returnedClient.ID != client.ID {
+		t.Fatalf("client id = %q, want %q", returnedClient.ID, client.ID)
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(key, "vpn://"))
+	if err != nil {
+		t.Fatalf("decode vpn import key: %v", err)
+	}
+	if string(decoded) != conf {
+		t.Fatal("AWG3 vpn import key does not contain the rendered .conf")
 	}
 }
 

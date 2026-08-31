@@ -544,8 +544,7 @@ function ModalContent({ modal, state, notify, close, reload, runAction }: {
   if (modal.kind === "create-client") return <CreateClientForm tunnel={modal.tunnel} trafficLimitsEnabled={state.database.enabled} runAction={runAction} />;
   if (modal.kind === "client-settings") return <ClientSettingsForm client={modal.client} runAction={runAction} />;
   if (modal.kind === "client-config") {
-    const tunnel = state.tunnels.find((candidate) => candidate.id === modal.client.tunnel_id);
-    return <ClientConfigPanel client={modal.client} amneziaWGOnly={tunnel?.profile === "awg_3"} notify={notify} />;
+    return <ClientConfigPanel client={modal.client} notify={notify} />;
   }
   if (modal.kind === "delete-tunnel") return <DeleteTunnelConfirmation tunnel={modal.tunnel} close={close} runAction={runAction} />;
   return <MaintenanceCenter state={state} notify={notify} close={close} reload={reload} />;
@@ -775,7 +774,7 @@ function ExpirationField({ current, keepCurrent = false }: { current?: string; k
   </>;
 }
 
-function ClientConfigPanel({ client, amneziaWGOnly, notify }: { client: Client; amneziaWGOnly: boolean; notify: (message: string) => void }) {
+function ClientConfigPanel({ client, notify }: { client: Client; notify: (message: string) => void }) {
   const { m } = useI18n();
   const notifyRef = useRef(notify);
   const qrImageURLsRef = useRef<Record<string, string>>({});
@@ -789,7 +788,7 @@ function ClientConfigPanel({ client, amneziaWGOnly, notify }: { client: Client; 
   const [failedQRKeys, setFailedQRKeys] = useState<Record<string, boolean>>({});
   const [expandedQR, setExpandedQR] = useState<ExpandedQR | null>(null);
   const [busy, setBusy] = useState(false);
-  const activeQRMode: QRImportMode = amneziaWGOnly ? "amneziawg" : qrMode;
+  const activeQRMode: QRImportMode = qrMode;
   const hasVPNQRSeries = vpnQRChunks > 1;
   const vpnQRDownloadName = hasVPNQRSeries ? `${client.name}-amneziavpn-${vpnQRChunk + 1}-of-${vpnQRChunks}.png` : `${client.name}-amneziavpn.png`;
   const activeQRKey = qrImageKey(client.id, activeQRMode, vpnQRChunk);
@@ -829,7 +828,6 @@ function ClientConfigPanel({ client, amneziaWGOnly, notify }: { client: Client; 
   }, [client.id]);
 
   useEffect(() => {
-    if (amneziaWGOnly) return;
     let cancelled = false;
     setVPNQRChunks(1);
     setVPNQRChunk(0);
@@ -842,7 +840,7 @@ function ClientConfigPanel({ client, amneziaWGOnly, notify }: { client: Client; 
     return () => {
       cancelled = true;
     };
-  }, [client.id, amneziaWGOnly]);
+  }, [client.id]);
 
   useEffect(() => {
     if (qrImageURLs[activeQRKey] || failedQRKeys[activeQRKey]) return;
@@ -931,10 +929,10 @@ function ClientConfigPanel({ client, amneziaWGOnly, notify }: { client: Client; 
           <h3>{activeQRTitle}</h3>
           <p>{activeQRDescription}</p>
         </div>
-        {!amneziaWGOnly && <div class="segmented qr-mode-tabs" role="tablist" aria-label={m.clientConfig.qrImportMode}>
+        <div class="segmented qr-mode-tabs" role="tablist" aria-label={m.clientConfig.qrImportMode}>
           <button class={qrMode === "amneziavpn" ? "active" : ""} type="button" role="tab" aria-selected={qrMode === "amneziavpn"} onClick={() => setQRMode("amneziavpn")}>AmneziaVPN</button>
           <button class={qrMode === "amneziawg" ? "active" : ""} type="button" role="tab" aria-selected={qrMode === "amneziawg"} onClick={() => setQRMode("amneziawg")}>AmneziaWG</button>
-        </div>}
+        </div>
         <div class="qr-panel">
           {activeQRURL && <button class="qr-image-button" type="button" onClick={() => setExpandedQR({ mode: activeQRMode, chunk: vpnQRChunk })} aria-label={m.clientConfig.openLarger(activeQRTitle)}>
             <img class="qr-image" src={activeQRURL} alt={activeQRAlt} />
@@ -958,14 +956,14 @@ function ClientConfigPanel({ client, amneziaWGOnly, notify }: { client: Client; 
       <section class="config-option">
         <div>
           <h3>{m.clientConfig.importOptions}</h3>
-          <p>{amneziaWGOnly ? m.clientConfig.amneziaWGOnlyText : m.clientConfig.importOptionsText}</p>
+          <p>{m.clientConfig.importOptionsText}</p>
         </div>
         <div class="config-actions">
           <button class="button primary" type="button" onClick={() => downloadConfig(client.id)}>{m.clientConfig.downloadConf}</button>
-          {!amneziaWGOnly && <button class="button" disabled={busy} type="button" onClick={copyImportKey}>{m.clientConfig.copyVpnKey}</button>}
+          <button class="button" disabled={busy} type="button" onClick={copyImportKey}>{m.clientConfig.copyVpnKey}</button>
         </div>
-        {!amneziaWGOnly && importKey && <textarea class="mono import-key" aria-label={m.clientConfig.vpnImportLink} readOnly value={importKey} />}
-        {!amneziaWGOnly && importWarning && <p class="note">{importWarning}</p>}
+        {importKey && <textarea class="mono import-key" aria-label={m.clientConfig.vpnImportLink} readOnly value={importKey} />}
+        {importWarning && <p class="note">{importWarning}</p>}
       </section>
     </div>
     <p class="note">{m.clientConfig.secretWarning}</p>

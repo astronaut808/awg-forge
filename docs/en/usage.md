@@ -14,7 +14,7 @@ Main workflow:
 8. Choose one of the import methods offered for that profile.
 9. Import the config into a compatible AmneziaWG or AmneziaVPN client.
 
-AWG 3.x offers only the downloaded `.conf` and the AmneziaWG QR containing the same raw config. AmneziaVPN QR and `vpn://` are hidden for that profile because those formats have not been verified.
+AWG 3.x offers the same four export choices: `.conf`, raw-config AmneziaWG QR, structured AmneziaVPN QR, and `vpn://`. Use AmneziaVPN 5.0.1.5 or newer for AWG 3.1, and keep `.conf` as the fallback when a client-specific import path fails.
 
 ## UI Actions
 
@@ -22,7 +22,7 @@ Tunnel actions:
 
 - `Create tunnel`: create a new tunnel inside the selected profile.
 - `Create client`: create a client inside a specific tunnel.
-- `Config`: choose from the import methods supported by the tunnel profile. AWG 3.x is limited to `.conf` download and AmneziaWG QR.
+- `Config`: choose between `.conf`, AmneziaWG QR, AmneziaVPN QR, and `vpn://` export.
 - `Edit`: rename a client or store admin-only notes without changing VPN config.
 - `Settings`: tunnel settings, including optional per-tunnel `Server host` endpoint override.
 - `Protocol`: protocol params and regenerate.
@@ -130,8 +130,6 @@ awg-forge logs
 
 The most reliable path is `.conf` file import. The UI also provides separate QR options for different official clients. Every option contains client secrets, so show QR codes only on a trusted screen and never share them publicly.
 
-For AWG 3.x, the UI intentionally exposes only `.conf` download and the AmneziaWG raw-config QR. The remaining options below apply to profiles through AWG 2.0.
-
 The `AmneziaVPN` option shows a QR code built for AmneziaVPN import. The payload is a JSON wrapper with `last_config`, compressed with zlib, wrapped in the Qt/qCompress-style binary header used by AmneziaVPN, and encoded as base64url before QR generation. If a specific AmneziaVPN build does not scan it, use the `.conf` file fallback.
 
 The `AmneziaWG` option shows a raw full `.conf` QR. It is intended for AmneziaWG-compatible clients that scan config QR codes. AmneziaVPN may ignore raw `.conf` QR codes on some platforms.
@@ -141,5 +139,7 @@ Use the client `Config` action to choose between:
 - `AmneziaVPN`: AmneziaVPN-compatible QR import;
 - `AmneziaWG`: raw full `.conf` QR for AmneziaWG-compatible import;
 - `.conf / vpn://`: the most reliable fallback for AmneziaWG, AmneziaVPN, routers, and manual imports, plus `vpn://` key copy for clients that support text import.
+
+For AWG 3.x, the structured AmneziaVPN QR uses protocol version `3.1` and includes the same Header Protection and timing fields as the rendered `.conf`. The `vpn://` value is base64url-encoded raw `.conf`, which AmneziaVPN 5.0.1.5+ passes through its normal config importer. Disabled `RandomTrailers` and `DisableCookies` options are omitted from client exports. These links and QR payloads contain the client private key, PSK, and AWG 3.x Header Protection key.
 
 If an official client cannot import the QR on a specific platform or version, download and import the `.conf` file instead.
