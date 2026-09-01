@@ -165,6 +165,31 @@ func TestInitWithOptionsCreatesFirstTunnel(t *testing.T) {
 	}
 }
 
+func TestInitWithOptionsUsesConservativeAWG3MTU(t *testing.T) {
+	enableAWG3RuntimeForTest(t)
+	cfg := config.Config{
+		ConfigDir:         t.TempDir(),
+		ServerHost:        "vpn.example.com",
+		ExternalInterface: "eth0",
+	}
+	state, err := app.New(cfg).InitWithOptions(app.InitOptions{
+		ServerHost:        "vpn.example.com",
+		ExternalInterface: "eth0",
+		ProfileID:         "awg_3",
+		Name:              "awg3",
+		ListenPort:        51840,
+		IPv4Subnet:        "10.30.0.0/24",
+		DNS:               "1.1.1.1",
+		AllowedIPs:        "0.0.0.0/0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Tunnels[0].MTU; got != 1280 {
+		t.Fatalf("AWG3 initial MTU = %d, want 1280", got)
+	}
+}
+
 func TestInitWithOptionsRejectsInvalidTunnelName(t *testing.T) {
 	cfg := config.Config{
 		ConfigDir:         t.TempDir(),
@@ -567,11 +592,67 @@ func TestAWG3RequiresLaboratoryRuntime(t *testing.T) {
 	if tunnel.ProtocolParams["RandomTrailers"] != "off" || tunnel.ProtocolParams["DisableCookies"] != "off" {
 		t.Fatalf("unsafe AWG 3.x defaults: %#v", tunnel.ProtocolParams)
 	}
+	if tunnel.MTU != cfg.MTU {
+		t.Fatalf("explicit AWG3 MTU = %d, want %d", tunnel.MTU, cfg.MTU)
+	}
+}
+
+func TestNewTunnelMTUDefaultIsScopedToAWG3(t *testing.T) {
+	enableAWG3RuntimeForTest(t)
+	cfg := testConfig(t)
+	cfg.MTU = 0
+	svc := app.New(cfg)
+
+	awg20, err := svc.CreateTunnel("awg_2_0", "awg20", "10.20.0.0/24", 51830)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if awg20.MTU != 0 {
+		t.Fatalf("AWG2 MTU = %d, want auto", awg20.MTU)
+	}
+
+	awg3, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if awg3.MTU != 1280 {
+		t.Fatalf("AWG3 MTU = %d, want 1280", awg3.MTU)
+	}
+
+	if _, err := svc.UpdateTunnelSettings(awg3.ID, app.TunnelSettingsUpdate{
+		Name:       awg3.Name,
+		ServerHost: awg3.ServerHost,
+		EgressMode: awg3.EgressMode,
+		Subnet:     awg3.IPv4Subnet,
+		DNS:        awg3.DNS,
+		AllowedIPs: awg3.AllowedIPs,
+		Keepalive:  awg3.Keepalive,
+		MTU:        0,
+		Port:       awg3.ListenPort,
+		Enabled:    awg3.Enabled,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := app.New(cfg).Init()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tunnel := range state.Tunnels {
+		if tunnel.ID != awg3.ID {
+			continue
+		}
+		if tunnel.MTU != 0 {
+			t.Fatalf("existing AWG3 auto MTU was replaced with %d", tunnel.MTU)
+		}
+		return
+	}
+	t.Fatal("existing AWG3 tunnel was not restored")
 }
 
 func TestAWG3ClientExportSupportsConfBasedFormats(t *testing.T) {
 	enableAWG3RuntimeForTest(t)
 	cfg := testConfig(t)
+	cfg.MTU = 1360
 	svc := app.New(cfg)
 	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
 	if err != nil {
@@ -588,6 +669,9 @@ func TestAWG3ClientExportSupportsConfBasedFormats(t *testing.T) {
 	}
 	if !strings.Contains(conf, "HeaderProtectionKey =") {
 		t.Fatalf("AWG3 .conf is missing HeaderProtectionKey:\n%s", conf)
+	}
+	if !strings.Contains(conf, "\nMTU = 1360\n") {
+		t.Fatalf("AWG3 .conf does not preserve custom MTU:\n%s", conf)
 	}
 	ctx, err := svc.ClientExportContext(client.ID)
 	if err != nil {

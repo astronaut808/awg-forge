@@ -695,7 +695,7 @@ func (s *Service) newTunnel(spec tunnelSpec) (config.Tunnel, error) {
 		DNS:               s.cfg.DNS,
 		AllowedIPs:        s.cfg.AllowedIPs,
 		Keepalive:         s.cfg.PersistentKeepalive,
-		MTU:               s.cfg.MTU,
+		MTU:               initialTunnelMTU(spec.ProfileID, s.cfg.MTU),
 		ServerPrivateKey:  priv,
 		ServerPublicKey:   pub,
 		ProtocolProfileID: spec.ProfileID,
@@ -706,6 +706,13 @@ func (s *Service) newTunnel(spec tunnelSpec) (config.Tunnel, error) {
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}, nil
+}
+
+func initialTunnelMTU(profileID string, configured int) int {
+	if configured == 0 && isAWG3Profile(profileID) {
+		return 1280
+	}
+	return configured
 }
 
 func (s *Service) profileAvailable(profileID string) bool {

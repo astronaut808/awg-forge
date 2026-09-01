@@ -17,6 +17,7 @@
 - Simplified tunnel cards by removing repeated interface/profile labels, and made client state colors unambiguous: green for online, blue for enabled, and gray for disabled or expired.
 - Hide empty protocol filters on the tunnel dashboard while keeping every supported profile available when creating a tunnel, and expose the established client export paths consistently for AWG 3.x.
 - Updated the pinned AWG 3.x userspace runtime to `amneziawg-go` 3.1.20260828 for current upstream UDP-window padding and `DisableCookies` under-load fixes; unresolved `RandomTrailers` classification issues remain guarded by the experimental status and an `off` default.
+- New AWG 3.x tunnels now use an explicit `1280` MTU fallback when no MTU is configured, keeping server and exported client configurations aligned while current AmneziaVPN import fixes remain pending. Explicit values and existing tunnel state are preserved.
 
 ### Fixed
 

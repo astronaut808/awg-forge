@@ -22,9 +22,9 @@ The single AWG 3.x experimental profile is derived from the current AmneziaVPN s
 
 The numeric and range defaults mirror the upstream client generator. `I1` reuses AWG-Forge's generated QUIC Initial-like CPS mechanism from the 2.0 profile. Header Protection defaults to compatibility headers `H1-H4=1/2/3/4`, which disable custom message headers, and requires every `S1-S4` value to be at least `12`. The security-sensitive `RandomTrailers` and `DisableCookies` toggles default to `off`. If `RandomTrailers` is enabled, upstream recommends equal `S1-S4` values to reduce packet misclassification risk. AWG3 config parsing in the pinned tools accepts the extended ranges as `uint16`; awg-forge rejects values above `65535` rather than allowing upstream truncation.
 
-AWG3 is forced through the pinned userspace runtime. The complete profile is experimental and must be enabled and used at the operator's own risk. Keep `RandomTrailers` off while the upstream transport-classification and first-packet issues remain unresolved. `DisableCookies=on` suppresses outgoing Cookie Reply messages, but does not disable incoming cookie handling or the rest of WireGuard's cookie logic; it still weakens handshake-flood protection and must remain off outside controlled testing. Server configs retain explicit `off` values because runtime updates use `syncconf`; all client exports omit disabled options, matching AmneziaVPN 5.0.1.5 canonical export. Use AmneziaVPN 5.0.1.5+ for interoperability tests and do not use 5.0.0.5 for AWG 3.1. The AmneziaWG QR and `vpn://` contain the same rendered raw `.conf` as the download. The AmneziaVPN QR uses a typed `last_config` with protocol version `3.1`, Header Protection, timing fields, MTU, and the AWG 3.x keepalive range. `.conf` remains the fallback if a platform-specific QR or deep-link import fails.
+AWG3 is forced through the pinned userspace runtime. The complete profile is experimental and must be enabled and used at the operator's own risk. Keep `RandomTrailers` off while the upstream transport-classification and first-packet issues remain unresolved. `DisableCookies=on` suppresses outgoing Cookie Reply messages; in the pinned runtime it bypasses the receiving-side under-load cookie challenge, MAC2 check, and rate-limit branch while incoming Cookie Reply handling remains available. This materially weakens handshake-flood protection and must remain off outside controlled testing. Server configs retain explicit `off` values because runtime updates use `syncconf`; all client exports omit disabled options, matching AmneziaVPN 5.0.1.5 canonical export. Use AmneziaVPN 5.0.1.5+ for interoperability tests and do not use 5.0.0.5 for AWG 3.1. The AmneziaWG QR and `vpn://` contain the same rendered raw `.conf` as the download. The AmneziaVPN QR uses a typed `last_config` with protocol version `3.1`, Header Protection, timing fields, MTU, and the AWG 3.x keepalive range. `.conf` remains the fallback if a platform-specific QR or deep-link import fails.
 
-An explicit tunnel MTU is rendered identically in server and client `.conf` files. Use `1280` as a conservative AWG 3.x fallback when the path MTU is unknown, and verify the effective value on both ends because an open AmneziaVPN import bug can replace the supplied value with a platform default.
+An explicit tunnel MTU is preserved in the server config, downloaded client `.conf`, structured AmneziaVPN QR, and raw-config `vpn://` export. New AWG 3.x tunnels default to `1280` when no MTU is configured; explicit values and existing tunnel state are preserved. AmneziaVPN `5.0.2.0` prerelease still replaces the supplied value with a platform default; upstream PR #3113 proposes preserving non-empty imported MTU values but has not been merged or released.
 
 Manual end-to-end validation of the standard image has confirmed `.conf` import, handshake, traffic, restart recovery, WAN egress, and WARP egress with compatible current AmneziaVPN, AmneziaWG, and DefaultVPN clients. This is a bounded acceptance result, not a guarantee for every platform, client build, network, or future 3.x runtime.
 
@@ -67,6 +67,7 @@ Official 2.0 parameter ranges:
 | `HeaderProtectionKey` | Not rendered | Not rendered | Not rendered | Client and server interface; generated once per tunnel |
 | AWG 3.x timing ranges | Not rendered | Not rendered | Not rendered | Client and server interface |
 | `RandomTrailers/DisableCookies` | Not rendered | Not rendered | Not rendered | Explicit state in server runtime config; enabled values only in client exports |
+| MTU when none is configured | Omitted (`Auto`) | Omitted (`Auto`) | Omitted (`Auto`) | New tunnels render `1280`; existing `0` state is preserved |
 | `protocol_version` | Not an INI field | Not an INI field | Not an INI field; only AmneziaVPN JSON import metadata should use `"2"` | Not an INI field |
 
 ## Current Defaults
@@ -133,5 +134,9 @@ Still requires broader validation:
 - [S4 first-packet race fix](https://github.com/amnezia-vpn/amneziawg-go/pull/184)
 - [RandomTrailers and ContentPaddingAddition MTU issue](https://github.com/amnezia-vpn/amneziawg-go/issues/185)
 - [AmneziaVPN MTU import fix](https://github.com/amnezia-vpn/amnezia-client/pull/3065)
+- [AmneziaVPN explicit imported MTU preservation](https://github.com/amnezia-vpn/amnezia-client/pull/3113)
 - [AmneziaVPN AWG 3.1 server/client MTU mismatch report](https://github.com/amnezia-vpn/amnezia-client/issues/3089)
+- [Pinned `awg-quick` MTU selection logic](https://github.com/amnezia-vpn/amneziawg-tools/blob/ee0f0a9aa34ff0a0da4b3433b9512781cfe02843/src/wg-quick/linux.bash)
+- [Current Amnezia client MTU defaults](https://github.com/amnezia-vpn/amnezia-client/blob/dev/client/core/utils/constants/protocolConstants.h)
+- [RFC 8200, IPv6 minimum link MTU](https://www.rfc-editor.org/rfc/rfc8200.html#section-5)
 - [RFC 9000, QUIC: A UDP-Based Multiplexed and Secure Transport](https://www.rfc-editor.org/rfc/rfc9000)
