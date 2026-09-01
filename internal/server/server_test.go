@@ -1577,6 +1577,29 @@ func TestBuildAmneziaVPNQRPayloadAWG3Shape(t *testing.T) {
 	}
 }
 
+func TestBuildAmneziaVPNQRPayloadAWG3PreservesCustomMTU(t *testing.T) {
+	ctx := amneziaVPNTestAWG3ExportContextWithMTU(t, 1360)
+	payload, err := buildAmneziaVPNQRPayload(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonBytes := decodeAmneziaVPNQRPayload(t, payload).JSONBytes
+	var outer amneziaVPNConfig
+	if err := json.Unmarshal(jsonBytes, &outer); err != nil {
+		t.Fatal(err)
+	}
+	var last amneziaVPNLastConfig
+	if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+		t.Fatal(err)
+	}
+	if last.MTU != "1360" {
+		t.Fatalf("last_config mtu = %q, want 1360", last.MTU)
+	}
+	if !strings.Contains(last.Config, "\nMTU = 1360\n") {
+		t.Fatalf("last_config rendered config does not preserve custom MTU:\n%s", last.Config)
+	}
+}
+
 func TestBuildAmneziaVPNQRPackHeaderAndDecompression(t *testing.T) {
 	original := []byte(`{"description":"phone","hostName":"vpn.example.com"}`)
 	payload, err := buildAmneziaVPNQRPack(original)
@@ -1909,6 +1932,10 @@ func amneziaVPNTestExportContext(t *testing.T) app.ClientExportContext {
 }
 
 func amneziaVPNTestAWG3ExportContext(t *testing.T) app.ClientExportContext {
+	return amneziaVPNTestAWG3ExportContextWithMTU(t, 1280)
+}
+
+func amneziaVPNTestAWG3ExportContextWithMTU(t *testing.T, mtu int) app.ClientExportContext {
 	t.Helper()
 	previousRuntime := buildinfo.AWG3Runtime
 	buildinfo.AWG3Runtime = "true"
@@ -1926,7 +1953,7 @@ func amneziaVPNTestAWG3ExportContext(t *testing.T) app.ClientExportContext {
 		DNS:                 "1.1.1.1",
 		AllowedIPs:          "0.0.0.0/0",
 		PersistentKeepalive: 25,
-		MTU:                 1280,
+		MTU:                 mtu,
 		ProtocolProfile:     "awg_legacy_1_0",
 	}
 	svc := app.New(cfg)

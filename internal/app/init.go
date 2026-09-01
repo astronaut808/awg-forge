@@ -69,7 +69,7 @@ func (s *Service) createInitialState(options InitOptions) (config.State, error) 
 	tunnel.DNS = options.DNS
 	tunnel.AllowedIPs = options.AllowedIPs
 	tunnel.Keepalive = options.PersistentKeepalive
-	tunnel.MTU = options.MTU
+	tunnel.MTU = initialTunnelMTU(spec.ProfileID, options.MTU)
 	state := config.State{
 		SchemaVersion:     config.CurrentStateSchemaVersion,
 		SessionSecret:     secret,

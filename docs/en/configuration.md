@@ -249,13 +249,26 @@ Important:
 
 ## MTU
 
-`MTU=0` in a tunnel means awg-forge does not add `MTU = ...` to server/client configs.
+MTU defaults are profile-specific:
 
-If you explicitly set tunnel MTU, it is rendered exactly the same into server and client configs. awg-forge does not use hidden MTU decisions.
+| Profile | New tunnel when no MTU is configured |
+| --- | --- |
+| Legacy / 1.0, AWG 1.5, AWG 2.0 | Store `0` (`Auto`) and omit `MTU = ...` from server and client configs |
+| AWG 3.x | Store and render `1280` as a conservative compatibility fallback |
+
+For the stable profiles, `Auto` delegates the server-side choice to the pinned `awg-quick`. It inspects the route or link MTU for configured peer endpoints, falls back to the default route and then `1500`, and subtracts `80`; a normal `1500` link therefore produces a `1420` tunnel interface. This is a local route/link heuristic, not end-to-end PMTU discovery. When the client config also omits MTU, the client chooses independently, so its effective value can differ from the server value.
+
+AWG 3.x uses an explicit `1280` only for a newly created tunnel whose configured default is `0`. This is an awg-forge interoperability fallback, not an AWG protocol requirement. `1280` is the IPv6 minimum link MTU and is also the current Amnezia client default on Android, iOS, and macOS Network Extension builds; current desktop builds still default to `1376`, while upstream PR #3065 proposes unifying the fallback at `1280`. awg-forge currently generates IPv4-only client routes, so the IPv6 minimum is a conservative engineering reference rather than a protocol guarantee. The lower value also leaves more encapsulation headroom for the experimental profile and avoids depending on the client's platform-specific fallback.
+
+This value is not a measured PMTU and cannot guarantee every nested VPN, PPPoE, overlay, or otherwise reduced-MTU path. Existing AWG 3.x tunnels with `MTU=0` are not migrated, and selecting `Auto` later remains an explicit operator choice.
+
+If you explicitly set tunnel MTU, it is rendered exactly the same into server and client configs. Existing tunnel values are not migrated or replaced.
+
+WARP is separate from protocol-profile MTU selection and keeps its own `1280` default.
 
 Practically:
 
-- `Auto` is a good starting point;
+- `Auto` retains the established behavior for Legacy, 1.5, and 2.0, but does not measure the complete network path;
 - `1280` often helps on problematic networks, mobile networks, routers, and complex routes;
 - the Web UI offers `Auto`, common presets, and `Custom` for explicit MTU values;
 - after changing MTU, clients should re-import a fresh config from `Config`.
@@ -305,9 +318,9 @@ The image pins `amneziawg-go` 3.1.20260828 and `amneziawg-tools` 3.1.20260812, f
 
 Client export supports downloaded `.conf`, the AmneziaWG QR containing that raw config, a typed structured AmneziaVPN QR, and `vpn://` containing base64url-encoded raw `.conf`. AmneziaVPN 5.0.1.5 is the minimum supported target for AWG 3.1 interoperability; do not use 5.0.0.5. `.conf` remains the stable fallback for client- or platform-specific import failures.
 
-Generated Header Protection settings follow the upstream compatibility rules. `RandomTrailers` and `DisableCookies` default to `off`; keep both disabled outside controlled testing. `DisableCookies` reduces handshake-flood protection even though it suppresses only outgoing Cookie Reply messages. Exact parameter rules, runtime constraints, known upstream issues, validation status, and source links are maintained in the [protocol matrix](protocol-matrix.md#awg-3x-experimental-boundaries).
+Generated Header Protection settings follow the upstream compatibility rules. `RandomTrailers` and `DisableCookies` default to `off`; keep both disabled outside controlled testing. `DisableCookies` suppresses outgoing Cookie Reply messages and makes the pinned runtime bypass its receiving-side under-load cookie challenge and rate-limit path, materially reducing handshake-flood protection. Exact parameter rules, runtime constraints, known upstream issues, validation status, and source links are maintained in the [protocol matrix](protocol-matrix.md#awg-3x-experimental-boundaries).
 
-When an explicit tunnel MTU is configured, awg-forge writes the same value to both server and client `.conf` files. For AWG 3.x interoperability testing, use `1280` as the conservative fallback instead of `Auto` when the path MTU is unknown. Some current AmneziaVPN import paths can replace a server-provided MTU with a platform default; that upstream fix is still pending, so verify the effective MTU on both ends when a handshake succeeds but large packets stall.
+When an explicit tunnel MTU is configured, awg-forge preserves it in the server config, downloaded client `.conf`, structured AmneziaVPN QR, and raw-config `vpn://` export. New AWG 3.x tunnels use `1280` as a conservative fallback when no MTU is configured; explicit values and existing tunnel state are preserved. AmneziaVPN `5.0.2.0` prerelease can still replace an imported value with its platform default. The preservation fix is proposed in upstream PR #3113 but is not yet released, so verify the effective MTU on both ends when a handshake succeeds but large packets stall.
 
 Manual end-to-end testing has confirmed `.conf` import, handshake, traffic, restart recovery, WAN egress, and WARP egress with compatible AmneziaVPN, AmneziaWG, and DefaultVPN clients. This does not guarantee compatibility with every platform, client build, network, or future 3.x runtime.
 
