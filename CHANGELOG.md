@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Stop the existing WARP runtime with its previous configuration before atomically replacing it, so removing or changing a WARP-routed tunnel also removes the corresponding policy rule and route.
 - Restore keyboard focus to the opening control after closing a modal dialog.
 - Avoid cancelling and repeating the initial client QR request when opening the Config dialog; keep export state and the temporary QR cache isolated per client.
 - Corrected installation, restore, legacy environment defaults, ACME recovery, and first-tunnel creation instructions in the English and Russian documentation.
