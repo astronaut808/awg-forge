@@ -35,11 +35,18 @@ var serverHostRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0
 var transferRE = regexp.MustCompile(`^transfer:\s+(.+?) received,\s+(.+?) sent$`)
 
 type Service struct {
-	mu      sync.Mutex
-	cfg     config.Config
-	store   storage.Store
-	audit   audit.Logger
-	runtime *observability.Logger
+	mu         sync.Mutex
+	cfg        config.Config
+	store      storage.Store
+	audit      audit.Logger
+	runtime    *observability.Logger
+	runtimeOps runtimeOperations
+}
+
+type runtimeOperations struct {
+	applyTunnel   func(config.Tunnel) error
+	removeTunnel  func(config.Tunnel) error
+	reconcileWarp func(config.State) error
 }
 
 type TunnelStatus struct {
@@ -119,7 +126,13 @@ func New(cfg config.Config) *Service {
 }
 
 func NewWithRuntimeLog(cfg config.Config, runtimeLog *observability.Logger) *Service {
-	return &Service{cfg: cfg, store: storage.New(cfg.ConfigDir), audit: audit.New(cfg), runtime: runtimeLog}
+	service := &Service{cfg: cfg, store: storage.New(cfg.ConfigDir), audit: audit.New(cfg), runtime: runtimeLog}
+	service.runtimeOps = runtimeOperations{
+		applyTunnel:   service.apply,
+		removeTunnel:  service.removeTunnelRuntime,
+		reconcileWarp: service.reconcileWarpRuntime,
+	}
+	return service
 }
 
 func (s *Service) Audit() audit.Logger {
@@ -248,7 +261,7 @@ func (s *Service) renderAllLocked() error {
 		if err != nil {
 			return err
 		}
-		if err := s.renderTunnelFromState(state, tunnelID, false, false); err != nil {
+		if err := s.renderTunnelFromState(state, tunnelID, false); err != nil {
 			return err
 		}
 	}
@@ -287,10 +300,10 @@ func (s *Service) renderTunnelLocked(tunnelID string, failOnApply bool) error {
 	if err != nil {
 		return err
 	}
-	return s.renderTunnelFromState(state, tunnelID, failOnApply, true)
+	return s.renderTunnelFromState(state, tunnelID, failOnApply)
 }
 
-func (s *Service) renderTunnelFromState(state config.State, tunnelID string, failOnApply, reconcileWarp bool) error {
+func (s *Service) renderTunnelFromState(state config.State, tunnelID string, failOnApply bool) error {
 	started := time.Now()
 	idx, ok := tunnelIndexByID(state, tunnelID)
 	if !ok {
@@ -304,7 +317,7 @@ func (s *Service) renderTunnelFromState(state config.State, tunnelID string, fai
 	state.Tunnels[idx].LastRenderAt = now
 	state.Tunnels[idx].LastApplyError = ""
 	if s.cfg.ApplyConfig && state.Tunnels[idx].Enabled {
-		if err := s.apply(state.Tunnels[idx]); err != nil {
+		if err := s.runtimeOps.applyTunnel(state.Tunnels[idx]); err != nil {
 			state.Tunnels[idx].LastApplyError = err.Error()
 			state.Tunnels[idx].UpdatedAt = now
 			state.UpdatedAt = now
@@ -317,21 +330,6 @@ func (s *Service) renderTunnelFromState(state config.State, tunnelID string, fai
 			}
 			s.log("warn", "tunnel.apply.failed", "runtime apply failed but state was saved", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
 			return nil
-		}
-		if reconcileWarp && warpRuntimeRequired(state) {
-			if err := s.reconcileWarpRuntimeStatus(&state, now); err != nil {
-				state.Tunnels[idx].UpdatedAt = now
-				state.UpdatedAt = now
-				if saveErr := s.store.Save(state); saveErr != nil {
-					return errors.Join(fmt.Errorf("WARP apply failed: %w", err), fmt.Errorf("save state failed: %w", saveErr))
-				}
-				if failOnApply {
-					s.log("error", "warp.apply.failed", "WARP runtime apply failed", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
-					return &ApplyError{Err: err}
-				}
-				s.log("warn", "warp.apply.failed", "WARP runtime apply failed but state was saved", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), err)
-				return nil
-			}
 		}
 		state.Tunnels[idx].LastApplyAt = now
 		s.log("info", "tunnel.apply.succeeded", "runtime tunnel applied", withDuration(tunnelAuditFields(state.Tunnels[idx]), started), nil)
@@ -384,20 +382,44 @@ func (s *Service) rollbackRenderedState(previous config.State, tunnelID string, 
 }
 
 func (s *Service) rollbackRuntimeState(previous config.State, tunnelID string, deleteRendered ...string) error {
-	if err := s.rollbackRenderedState(previous, tunnelID, deleteRendered...); err != nil {
+	current, err := s.store.Load()
+	if err != nil {
+		return err
+	}
+	renderedTunnelID := tunnelID
+	if _, ok := tunnelIndexByID(previous, tunnelID); !ok {
+		renderedTunnelID = ""
+	}
+	if err := s.rollbackRenderedState(previous, renderedTunnelID, deleteRendered...); err != nil {
 		return err
 	}
 	if !s.cfg.ApplyConfig || tunnelID == "" {
 		return nil
 	}
-	idx, ok := tunnelIndexByID(previous, tunnelID)
-	if !ok || !previous.Tunnels[idx].Enabled {
-		return nil
+	var rollbackErrors []error
+	if idx, ok := tunnelIndexByID(current, tunnelID); ok {
+		if err := s.runtimeOps.removeTunnel(current.Tunnels[idx]); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("runtime rollback cleanup failed: %w", err))
+		}
 	}
-	if err := s.apply(previous.Tunnels[idx]); err != nil {
-		return fmt.Errorf("runtime rollback apply failed: %w", err)
+	if idx, ok := tunnelIndexByID(previous, tunnelID); ok && previous.Tunnels[idx].Enabled {
+		if err := s.runtimeOps.applyTunnel(previous.Tunnels[idx]); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("runtime rollback apply failed: %w", err))
+		}
 	}
-	return nil
+	return errors.Join(rollbackErrors...)
+}
+
+func (s *Service) rollbackRuntimeAndWarp(previous config.State, tunnelID string, deleteRendered ...string) error {
+	runtimeErr := s.rollbackRuntimeState(previous, tunnelID, deleteRendered...)
+	if !s.cfg.ApplyConfig {
+		return runtimeErr
+	}
+	warpErr := s.runtimeOps.reconcileWarp(previous)
+	if warpErr != nil {
+		warpErr = fmt.Errorf("WARP runtime rollback failed: %w", warpErr)
+	}
+	return errors.Join(runtimeErr, warpErr)
 }
 
 func (s *Service) UpdateProtocol(profileID string, params config.ProtocolParams) error {
@@ -475,7 +497,7 @@ func (s *Service) updateTunnelProtocol(tunnelID, profileID string, params config
 		return err
 	}
 	if err := s.renderTunnelLocked(tunnelID, true); err != nil {
-		if rollbackErr := s.rollbackRenderedState(previousState, tunnelID); rollbackErr != nil {
+		if rollbackErr := s.rollbackRuntimeState(previousState, tunnelID); rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 		}
 		s.log("error", "tunnel.protocol.failed", "protocol update failed", map[string]any{"tunnel_id": tunnelID, "profile": profileID}, err)

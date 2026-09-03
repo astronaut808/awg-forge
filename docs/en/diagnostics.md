@@ -219,10 +219,10 @@ Restore checks:
 - valid `state.json`;
 - server config rendering.
 
-Restore does not apply runtime automatically. After restore, explicitly restart tunnels, repair managed firewall rules, and check the system:
+Restore does not apply runtime automatically. Restart the container to reload all restored settings, including TLS and database state. With `APPLY_CONFIG=true`, startup applies enabled tunnels and then reconciles WARP. `awg-forge tunnel restart` restarts only the first tunnel and does not reload the running service's settings or reconcile WARP. After startup, repair managed firewall rules and check the system:
 
 ```bash
-docker exec awg-forge awg-forge tunnel restart
+docker restart awg-forge
 docker exec awg-forge awg-forge firewall repair
 docker exec awg-forge awg-forge doctor
 ```

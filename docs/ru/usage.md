@@ -7,12 +7,14 @@
 1. Открой UI через SSH tunnel или защищенный admin endpoint.
 2. Войди по паролю.
 3. При необходимости переключи язык панели кнопкой `RU` / `EN` в верхней панели. Выбор сохраняется в браузере.
-4. Выбери вкладку профиля: `1.0`, `1.5`, `2.0` или экспериментальный `3.x`.
-5. Создай туннель, если он еще не создан.
+4. Выбери существующий туннель или нажми `Create tunnel`, чтобы добавить новый.
+5. При создании туннеля выбери его протокол и настройки в диалоге.
 6. Создай клиента внутри нужного туннеля.
 7. Открой `Config` у клиента.
 8. Выбери один из способов импорта, доступных для этого профиля.
 9. Импортируй конфиг в совместимый клиент AmneziaWG или AmneziaVPN.
+
+Фильтры профилей на dashboard появляются только для профилей с существующими туннелями; диалог создания предлагает все доступные профили.
 
 Для AWG 3.x доступны те же четыре варианта экспорта: `.conf`, QR с raw-конфигом для AmneziaWG, structured QR для AmneziaVPN и `vpn://`. Для AWG 3.1 используй AmneziaVPN 5.0.1.5 или новее, а при проблеме конкретного способа импорта возвращайся к `.conf`.
 
@@ -20,7 +22,7 @@
 
 Действия с туннелями:
 
-- `Create tunnel`: создать новый туннель внутри выбранного профиля.
+- `Create tunnel`: выбрать протокол в диалоге и создать новый туннель.
 - `Create client`: создать клиента внутри конкретного туннеля.
 - `Config`: выбрать экспорт через `.conf`, QR для AmneziaWG, QR для AmneziaVPN или `vpn://`.
 - `Edit`: переименовать клиента или сохранить админские заметки без изменения VPN-конфига.
@@ -86,6 +88,8 @@ Doctor может предупреждать о клиентах, у котор�
 
 ## CLI в Docker
 
+После restore перезапусти контейнер, чтобы загрузить все восстановленные настройки, включая TLS и состояние базы данных. При `APPLY_CONFIG=true` запуск применяет включенные туннели и согласует runtime WARP. Перезапуска только туннеля недостаточно. Перед остальными проверками дождись запуска сервиса.
+
 ```bash
 docker exec awg-forge awg-forge doctor
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge backup /tmp/awg-forge.afbackup
@@ -93,7 +97,7 @@ docker cp awg-forge:/tmp/awg-forge.afbackup ./awg-forge-backup-YYYYMMDD-HHMMSS.a
 docker cp ./<backup-file>.afbackup awg-forge:/tmp/backup.afbackup
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge restore verify /tmp/backup.afbackup
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge restore /tmp/backup.afbackup
-docker exec awg-forge awg-forge tunnel restart
+docker restart awg-forge
 docker exec awg-forge awg-forge firewall repair
 docker exec awg-forge awg-forge firewall check
 docker exec awg-forge awg-forge support-bundle
@@ -125,6 +129,8 @@ awg-forge support-bundle
 awg-forge updates
 awg-forge logs
 ```
+
+После локального restore перезапусти работающий процесс awg-forge, чтобы загрузить восстановленные настройки.
 
 ## Импорт конфига клиента
 

@@ -17,6 +17,7 @@ make vet
 make build
 make ui-check
 make ui-build
+make ui-test
 make api-contract
 make lint-go
 make lint-js
@@ -68,6 +69,14 @@ runtime tools shipped in the standard Docker image.
 
 ## Pre-commit Checks
 
+Install the pinned browser once after `npm ci` (repeat after Playwright updates):
+
+```bash
+npx --no-install playwright install chromium
+```
+
+On Linux, add `--with-deps` if browser system libraries are missing.
+
 ```bash
 make ci
 git diff --check
@@ -76,13 +85,14 @@ git diff --check
 `make ci` runs:
 
 - `go test ./...`;
+- `make test-shell`, covering installer, upgrade, uninstall, and release-workflow scenarios;
 - `go vet ./...`;
 - `go build ./...`;
 - `golangci-lint run`;
 - `npm run ui:check`;
-- `npm run ui:build`;
+- `npm run ui:test`, which builds the embedded UI and runs Chromium regression tests;
 - `make api-contract`, which parses the OpenAPI source and checks the documented core control-plane routes and error envelope;
-- `deno lint web/src`;
+- `npm run ui:lint`, covering frontend source and browser tests;
 - `npm run quality:aislop`, which runs `aislop ci` with the project `.aislop/config.yml`.
 
 Pull requests also run separate `Security`, `Race`, and Docker image validation jobs. The security job runs `govulncheck`, Gitleaks, focused Semgrep and Trivy filesystem scans, ShellCheck, Hadolint, actionlint, and offline pedantic zizmor analysis. The Docker job starts the built image with runtime apply disabled, authenticates to the API, verifies the bundled AmneziaWG binaries and rendered config parser, restarts the container, and checks that the tunnel configuration remains available and parseable.
@@ -120,12 +130,16 @@ Generated frontend assets under `internal/server/static/assets/` and embedded fo
 
 ## Frontend
 
+`make ui-test` exercises login/logout, saved language/theme, client and tunnel forms, inline failures, maintenance views, and AWG 2.0/3.x export and QR-cache behavior. Chromium runs at desktop and mobile viewport sizes in light/dark themes with English/Russian UI. It uses real HTTP handlers and temporary data, with `APPLY_CONFIG=false`; it does not prove VPN traffic or native mobile-client interoperability.
+
+The runner starts isolated loopback backends on ports `51924` through `51927` and removes their temporary directories on normal shutdown. Set `UI_TEST_PORT` to change the first port. Existing servers are never reused, and deployment environment settings are not passed to the backends. Browser traces, screenshots, and videos are disabled in CI because exports contain keys; test reports are ignored by Git and are not uploaded.
+
 Frontend source lives in `web/` and is built with Vite + Preact + TypeScript.
 
 Generated output lives in `internal/server/static/` and is embedded into the Go binary with `embed.FS`. Update generated files with:
 
 ```bash
-npm install
+npm ci
 npm run ui:build
 ```
 

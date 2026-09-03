@@ -79,7 +79,7 @@ docker compose run --rm --no-deps awg-forge db migrate
 docker compose up -d
 ```
 
-Перед `init` замени пример host, интерфейса, порта и подсети. Команда создаёт первый постоянный туннель в `data/state.json`; изменение legacy tunnel-переменных в `.env` после этого его не обновит.
+Перед `init` замени пример host, интерфейса, порта и подсети. Также задай WAN-интерфейс хоста в `EXTERNAL_INTERFACE` файла `.env`, согласовав его с `--external-interface`: работающий сервис берет эту настройку из `.env`. Команда создаёт первый постоянный туннель в `data/state.json`; изменение legacy tunnel-переменных в `.env` после этого его не обновит.
 
 Рекомендуемый production-режим — Docker host networking. Так туннели, созданные в UI, могут использовать разные UDP-порты без изменения Docker port mappings.
 

@@ -64,6 +64,12 @@ jobs:
       - name: Check generated UI
         run: git diff --exit-code -- internal/server/static
 
+      - name: Install test browser
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Browser regression tests
+        run: npx --no-install playwright test
+
       - name: Test
         run: go test ./...
 

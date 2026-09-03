@@ -219,10 +219,10 @@ Restore проверяет:
 - валидность `state.json`;
 - возможность render server configs.
 
-Restore не применяет runtime автоматически. После restore явно перезапусти туннели, восстанови managed firewall rules и проверь состояние:
+Restore не применяет runtime автоматически. Перезапусти контейнер, чтобы загрузить все восстановленные настройки, включая TLS и состояние базы данных. При `APPLY_CONFIG=true` запуск применяет включенные туннели, а затем согласует runtime WARP. `awg-forge tunnel restart` перезапускает только первый туннель и не перезагружает настройки работающего сервиса или runtime WARP. После запуска восстанови managed firewall rules и проверь состояние:
 
 ```bash
-docker exec awg-forge awg-forge tunnel restart
+docker restart awg-forge
 docker exec awg-forge awg-forge firewall repair
 docker exec awg-forge awg-forge doctor
 ```

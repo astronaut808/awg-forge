@@ -79,7 +79,7 @@ docker compose run --rm --no-deps awg-forge db migrate
 docker compose up -d
 ```
 
-Replace the example host, interface, port, and subnet before running `init`. They create the first persistent tunnel in `data/state.json`; changing legacy tunnel variables in `.env` afterwards does not update it.
+Replace the example host, interface, port, and subnet before running `init`. Also set `EXTERNAL_INTERFACE` in `.env` to the host's WAN interface, matching `--external-interface`; the running service uses `.env` for this setting. The command creates the first persistent tunnel in `data/state.json`; changing legacy tunnel variables in `.env` afterwards does not update it.
 
 Docker host networking is the recommended production mode. It lets tunnels created in the UI use different UDP ports without editing Docker port mappings.
 

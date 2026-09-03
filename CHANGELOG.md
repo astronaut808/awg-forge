@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added browser regression coverage for authentication, preferences, forms, maintenance, and AWG 2.0/3.x client exports across desktop/mobile layouts, light/dark themes, and English/Russian UI, using isolated no-apply backends in the existing CI job.
 - Added an OpenAPI 3.1 browser control API contract for the stable tunnel, client, traffic-limit, and WARP control surface, with compatibility tests for the contract envelope.
 - Added one experimental AWG 3.x profile to the standard image with pinned `amneziawg-go` 3.1.20260828 and `amneziawg-tools` 3.1.20260812 userspace sources, validated `.conf` interoperability through compatible clients over WAN and WARP, and guarded `RandomTrailers` and `DisableCookies` controls that default to `off`. AWG 2.0 remains the default profile.
 - Added AWG 3.x client export through raw `.conf` QR for AmneziaWG, typed structured QR for AmneziaVPN 5.0.1.5+, and the existing `vpn://` raw-config import format, while retaining `.conf` download as the stable fallback.
@@ -17,15 +18,20 @@
 - Simplified tunnel cards by removing repeated interface/profile labels, and made client state colors unambiguous: green for online, blue for enabled, and gray for disabled or expired.
 - Hide empty protocol filters on the tunnel dashboard while keeping every supported profile available when creating a tunnel, and expose the established client export paths consistently for AWG 3.x.
 - Updated the pinned AWG 3.x userspace runtime to `amneziawg-go` 3.1.20260828 for current upstream UDP-window padding and `DisableCookies` under-load fixes; unresolved `RandomTrailers` classification issues remain guarded by the experimental status and an `off` default.
-- New AWG 3.x tunnels now use an explicit `1280` MTU fallback when no MTU is configured, keeping server and exported client configurations aligned while current AmneziaVPN import fixes remain pending. Explicit values and existing tunnel state are preserved.
+- New AWG 3.x tunnels now use an explicit `1280` MTU fallback when no MTU is configured, keeping server and exported client configurations aligned without relying on client-specific defaults. Explicit values and existing tunnel state are preserved.
 
 ### Fixed
 
+- Restore keyboard focus to the opening control after closing a modal dialog.
+- Avoid cancelling and repeating the initial client QR request when opening the Config dialog; keep export state and the temporary QR cache isolated per client.
+- Corrected installation, restore, legacy environment defaults, ACME recovery, and first-tunnel creation instructions in the English and Russian documentation.
 - Reconcile WARP once after all tunnel interfaces are restored during startup, and report WARP apply failures on WARP instead of leaving a stale error on an otherwise healthy tunnel.
+- Reconcile WARP only when tunnel routing changes, and restore the previous tunnel and WARP runtimes together when a route update fails; client and protocol changes no longer interrupt `warp0`, and disabling a tunnel now removes its runtime interface and managed firewall rules.
 - Show form submission failures inside the active dialog instead of behind the modal layer.
 
 ### Security
 
+- Updated the development dependency lockfile to `browserslist` `4.28.8`, `fast-uri` `3.1.7`, and `qs` `6.16.0` to address reported vulnerabilities in the build and quality tooling.
 - Added pull-request security and race checks for reachable Go vulnerabilities in AWG-Forge and the pinned `amneziawg-go` daemon, secret scanning, focused Semgrep rules, shell/Docker/workflow linting, GitHub Actions security analysis, and data races; Docker validation now smoke-tests the built image and blocks fixed HIGH/CRITICAL operating-system vulnerabilities while reporting application dependency findings for reachability triage.
 - Added stable safe API error codes and bound idempotency keys to request bodies, preventing a reused key from replaying a different mutation.
 - Updated the Go build toolchain to `1.26.7` and the frontend lockfile to `nanoid` `3.3.18` to include current security fixes.

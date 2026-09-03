@@ -101,7 +101,7 @@ func (s *Service) AddClientToTunnelWithOptions(tunnelID, name string, opts Clien
 		return config.Client{}, rollbackPersist(err)
 	}
 	if err := s.renderTunnelLocked(state.Tunnels[idx].ID, true); err != nil {
-		if rollbackErr := s.rollbackRenderedState(previousState, state.Tunnels[idx].ID); rollbackErr != nil {
+		if rollbackErr := s.rollbackRuntimeState(previousState, state.Tunnels[idx].ID); rollbackErr != nil {
 			return config.Client{}, rollbackPersist(errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr)))
 		}
 		s.log("error", "client.create.failed", "client creation failed", clientAuditFields(state.Tunnels[idx], client), err)
@@ -142,7 +142,7 @@ func (s *Service) RemoveClient(id string) error {
 				return err
 			}
 			if err := s.renderTunnelLocked(state.Tunnels[ti].ID, true); err != nil {
-				if rollbackErr := s.rollbackRenderedState(previousState, state.Tunnels[ti].ID); rollbackErr != nil {
+				if rollbackErr := s.rollbackRuntimeState(previousState, state.Tunnels[ti].ID); rollbackErr != nil {
 					return errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 				}
 				s.log("error", "client.delete.failed", "client deletion failed", map[string]any{"client_id": id, "tunnel_id": state.Tunnels[ti].ID}, err)
@@ -243,7 +243,7 @@ func (s *Service) setClientEnabledLocked(id string, enabled bool, trafficLimit *
 					return err
 				}
 				if err := s.renderTunnelLocked(state.Tunnels[ti].ID, true); err != nil {
-					if rollbackErr := s.rollbackRenderedState(previousState, state.Tunnels[ti].ID); rollbackErr != nil {
+					if rollbackErr := s.rollbackRuntimeState(previousState, state.Tunnels[ti].ID); rollbackErr != nil {
 						return errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 					}
 					s.log("error", "client.enabled.failed", "client enabled state update failed", clientAuditFields(state.Tunnels[ti], state.Tunnels[ti].Clients[ci]), err)
@@ -317,7 +317,7 @@ func (s *Service) UpdateClientSettingsWithOptions(id string, update ClientSettin
 				}
 				if expirationChanged {
 					if err := s.renderTunnelLocked(state.Tunnels[ti].ID, true); err != nil {
-						if rollbackErr := s.rollbackRenderedState(previousState, state.Tunnels[ti].ID); rollbackErr != nil {
+						if rollbackErr := s.rollbackRuntimeState(previousState, state.Tunnels[ti].ID); rollbackErr != nil {
 							return config.Client{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 						}
 						s.log("error", "client.settings.failed", "client settings update failed", clientAuditFields(state.Tunnels[ti], state.Tunnels[ti].Clients[ci]), err)
