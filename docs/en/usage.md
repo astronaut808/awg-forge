@@ -7,20 +7,24 @@ Main workflow:
 1. Open the UI through an SSH tunnel or a protected admin endpoint.
 2. Log in.
 3. Use the `RU` / `EN` button in the top bar to switch the panel language when needed. The choice is saved in the browser.
-4. Select profile tab `1.0`, `1.5`, or `2.0`.
-5. Create a tunnel if needed.
+4. Select an existing tunnel, or click `Create tunnel` to add one.
+5. When creating a tunnel, select its protocol and settings in the dialog.
 6. Create a client inside the selected tunnel.
 7. Open `Config` for the client.
-8. Choose AmneziaVPN QR, AmneziaWG `.conf` QR, `.conf` download, or copy the `vpn://` key.
+8. Choose one of the import methods offered for that profile.
 9. Import the config into a compatible AmneziaWG or AmneziaVPN client.
+
+Dashboard profile filters appear only for profiles with existing tunnels; the creation dialog offers all available profiles.
+
+AWG 3.x offers the same four export choices: `.conf`, raw-config AmneziaWG QR, structured AmneziaVPN QR, and `vpn://`. Use AmneziaVPN 5.0.1.5 or newer for AWG 3.1, and keep `.conf` as the fallback when a client-specific import path fails.
 
 ## UI Actions
 
 Tunnel actions:
 
-- `Create tunnel`: create a new tunnel inside the selected profile.
+- `Create tunnel`: choose a protocol in the dialog and create a new tunnel.
 - `Create client`: create a client inside a specific tunnel.
-- `Config`: choose how to import a client config: AmneziaVPN QR, AmneziaWG `.conf` QR, `.conf` download, or `vpn://` key copy.
+- `Config`: choose between `.conf`, AmneziaWG QR, AmneziaVPN QR, and `vpn://` export.
 - `Edit`: rename a client or store admin-only notes without changing VPN config.
 - `Settings`: tunnel settings, including optional per-tunnel `Server host` endpoint override.
 - `Protocol`: protocol params and regenerate.
@@ -84,6 +88,8 @@ In `serve` mode, awg-forge periodically enforces expired clients and re-renders 
 
 ## CLI In Docker
 
+After restore, restart the container to reload all restored settings, including TLS and database state. With `APPLY_CONFIG=true`, startup applies enabled tunnels and reconciles WARP. Restarting only a tunnel is not enough. Wait for startup before running the remaining checks.
+
 ```bash
 docker exec awg-forge awg-forge doctor
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge backup /tmp/awg-forge.afbackup
@@ -91,7 +97,7 @@ docker cp awg-forge:/tmp/awg-forge.afbackup ./awg-forge-backup-YYYYMMDD-HHMMSS.a
 docker cp ./<backup-file>.afbackup awg-forge:/tmp/backup.afbackup
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge restore verify /tmp/backup.afbackup
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge restore /tmp/backup.afbackup
-docker exec awg-forge awg-forge tunnel restart
+docker restart awg-forge
 docker exec awg-forge awg-forge firewall repair
 docker exec awg-forge awg-forge firewall check
 docker exec awg-forge awg-forge support-bundle
@@ -124,6 +130,8 @@ awg-forge updates
 awg-forge logs
 ```
 
+After a local restore, restart the running awg-forge process to reload restored settings.
+
 ## Client Config Import
 
 The most reliable path is `.conf` file import. The UI also provides separate QR options for different official clients. Every option contains client secrets, so show QR codes only on a trusted screen and never share them publicly.
@@ -137,5 +145,7 @@ Use the client `Config` action to choose between:
 - `AmneziaVPN`: AmneziaVPN-compatible QR import;
 - `AmneziaWG`: raw full `.conf` QR for AmneziaWG-compatible import;
 - `.conf / vpn://`: the most reliable fallback for AmneziaWG, AmneziaVPN, routers, and manual imports, plus `vpn://` key copy for clients that support text import.
+
+For AWG 3.x, the structured AmneziaVPN QR uses protocol version `3.1` and includes the same Header Protection and timing fields as the rendered `.conf`. The `vpn://` value is base64url-encoded raw `.conf`, which AmneziaVPN 5.0.1.5+ passes through its normal config importer. Disabled `RandomTrailers` and `DisableCookies` options are omitted from client exports. These links and QR payloads contain the client private key, PSK, and AWG 3.x Header Protection key.
 
 If an official client cannot import the QR on a specific platform or version, download and import the `.conf` file instead.

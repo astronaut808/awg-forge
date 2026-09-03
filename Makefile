@@ -1,16 +1,24 @@
 COMPOSE ?= docker compose
 CONTAINER ?= awg-forge
+IMAGE ?= awg-forge:local
+GITLEAKS_LOG_OPTS ?= HEAD
+GOVULNCHECK_VERSION ?= v1.1.4
+ACTIONLINT_VERSION ?= v1.7.12
 
-.PHONY: test test-shell vet build lint-go lint-js quality ui-build ui-check ci security security-fast updates updates-local updates-docker update-amneziawg-refs docker-build docker-up docker-down
+.PHONY: test test-race test-shell vet build lint-go lint-js lint-shell lint-docker lint-actions lint-actions-security quality ui-build ui-check ui-test api-contract ci vuln-check security security-fast docker-smoke updates updates-local updates-docker update-amneziawg-refs docker-build docker-up docker-down
 
 test:
 	go test ./...
+
+test-race:
+	go test -race ./...
 
 test-shell:
 	bash -n install.sh uninstall.sh scripts/*.sh
 	bash scripts/test-install.sh
 	bash scripts/test-upgrade.sh
 	bash scripts/test-uninstall.sh
+	bash scripts/test-release-workflow.sh
 
 vet:
 	go vet ./...
@@ -24,6 +32,18 @@ lint-go:
 lint-js:
 	npm run ui:lint
 
+lint-shell:
+	shellcheck --severity=warning install.sh uninstall.sh scripts/*.sh
+
+lint-docker:
+	hadolint Dockerfile
+
+lint-actions:
+	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+
+lint-actions-security:
+	zizmor --offline --pedantic .
+
 quality:
 	npm run quality:aislop
 
@@ -33,17 +53,32 @@ ui-check:
 ui-build:
 	npm run ui:build
 
-ci: ui-check ui-build test test-shell vet build lint-go lint-js quality
+ui-test:
+	npm run ui:test
+
+api-contract:
+	go test ./internal/server -run '^Test(API(ErrorResponseContract|ContractRegenerateProtocolRejectsMalformedJSON)|Idempotency|OpenAPIContract)'
+
+ci: ui-check ui-test api-contract test test-shell vet build lint-go lint-js quality
+
+vuln-check:
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	GOVULNCHECK_VERSION=$(GOVULNCHECK_VERSION) bash scripts/check-amneziawg-runtime-vulns.sh
 
 security:
-	gitleaks detect --source=. --no-banner --log-opts=HEAD
-	trivy fs .
-	semgrep --config=auto --disable-version-check .
+	$(MAKE) vuln-check lint-shell lint-docker lint-actions lint-actions-security
+	gitleaks git --redact --no-banner --log-opts="$(GITLEAKS_LOG_OPTS)" .
+	trivy fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
+	semgrep --config=auto --disable-version-check --error .
 
 security-fast:
-	gitleaks detect --source=. --no-banner --log-opts=HEAD
-	trivy fs --severity HIGH,CRITICAL --quiet .
-	semgrep --config=p/golang --config=p/typescript --config=p/secrets --disable-version-check .
+	$(MAKE) vuln-check lint-shell lint-docker lint-actions lint-actions-security
+	gitleaks git --redact --no-banner --log-opts="$(GITLEAKS_LOG_OPTS)" .
+	trivy fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --quiet .
+	semgrep --config=p/golang --config=p/typescript --disable-version-check --error .
+
+docker-smoke:
+	IMAGE=$(IMAGE) bash scripts/test-docker-image.sh
 
 updates: updates-local
 

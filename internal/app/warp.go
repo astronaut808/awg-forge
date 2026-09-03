@@ -64,11 +64,11 @@ func (s *Service) RegisterWarp(ctx context.Context) (config.Warp, error) {
 		return config.Warp{}, err
 	}
 	if s.cfg.ApplyConfig {
-		if err := s.reconcileWarpRuntime(state); err != nil {
+		if err := s.runtimeOps.reconcileWarp(state); err != nil {
 			if rollbackErr := s.store.Save(previous); rollbackErr != nil {
 				return config.Warp{}, errors.Join(err, rollbackErr)
 			}
-			if rollbackErr := s.reconcileWarpRuntime(previous); rollbackErr != nil {
+			if rollbackErr := s.runtimeOps.reconcileWarp(previous); rollbackErr != nil {
 				return config.Warp{}, errors.Join(err, rollbackErr)
 			}
 			s.log("error", "warp.register.failed", "WARP registration apply failed", warpAuditFields(registered, state), err)
@@ -115,11 +115,11 @@ func (s *Service) ImportWarpConfig(text string) (config.Warp, error) {
 		return config.Warp{}, err
 	}
 	if s.cfg.ApplyConfig {
-		if err := s.reconcileWarpRuntime(state); err != nil {
+		if err := s.runtimeOps.reconcileWarp(state); err != nil {
 			if rollbackErr := s.store.Save(previous); rollbackErr != nil {
 				return config.Warp{}, errors.Join(err, rollbackErr)
 			}
-			if rollbackErr := s.reconcileWarpRuntime(previous); rollbackErr != nil {
+			if rollbackErr := s.runtimeOps.reconcileWarp(previous); rollbackErr != nil {
 				return config.Warp{}, errors.Join(err, rollbackErr)
 			}
 			s.log("error", "warp.import.failed", "WARP config import failed", warpAuditFields(parsed, state), err)
@@ -185,7 +185,7 @@ func (s *Service) RestartWarp() error {
 	if !s.cfg.ApplyConfig {
 		return errors.New("APPLY_CONFIG=false; WARP restart skipped")
 	}
-	if err := s.reconcileWarpRuntime(state); err != nil {
+	if err := s.runtimeOps.reconcileWarp(state); err != nil {
 		state.Warp.LastApplyError = err.Error()
 		state.UpdatedAt = time.Now().UTC()
 		_ = s.store.Save(state)

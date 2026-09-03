@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/astronaut808/awg-forge/internal/buildinfo"
 	"github.com/astronaut808/awg-forge/internal/config"
 	"github.com/astronaut808/awg-forge/internal/keys"
 	"github.com/astronaut808/awg-forge/internal/protocol"
@@ -73,7 +74,7 @@ func (s *Service) SuggestTunnel(profileID string) (TunnelSuggestion, error) {
 	if profileID == "" {
 		profileID = s.cfg.ProtocolProfile
 	}
-	if _, ok := protocol.ByID(profileID); !ok {
+	if !s.profileAvailable(profileID) {
 		return TunnelSuggestion{}, errors.New("unknown protocol profile")
 	}
 	state, err := s.initLocked()
@@ -180,6 +181,8 @@ func SuggestedTunnelSpec(profileID string) (name string, port int, subnet string
 		return "awg15", 51825, "10.15.0.0/24"
 	case "awg_2_0":
 		return "awg20", 51830, "10.20.0.0/24"
+	case "awg_3":
+		return "awg3", 51840, "10.30.0.0/24"
 	default:
 		return "awg0", 51820, "10.8.0.0/24"
 	}
@@ -232,6 +235,9 @@ func (s *Service) createTunnel(profileID, name, subnet string, port int, automat
 	defer s.mu.Unlock()
 	if profileID == "" {
 		profileID = s.cfg.ProtocolProfile
+	}
+	if !s.profileAvailable(profileID) {
+		return config.Tunnel{}, fmt.Errorf("unsupported protocol profile %q", profileID)
 	}
 	state, err := s.initLocked()
 	if err != nil {
@@ -299,16 +305,27 @@ func (s *Service) createTunnel(profileID, name, subnet string, port int, automat
 	}
 	tunnel.EgressMode = egressMode
 	state.Tunnels = append(state.Tunnels, tunnel)
+	warpRoutesNeedReconcile := warpRoutesChanged(previousState, state)
 	state.UpdatedAt = time.Now().UTC()
 	if err := s.store.Save(state); err != nil {
 		return config.Tunnel{}, err
 	}
 	if err := s.renderTunnelLocked(tunnel.ID, true); err != nil {
-		if rollbackErr := s.rollbackRenderedState(previousState, "", tunnel.InterfaceName); rollbackErr != nil {
+		if rollbackErr := s.rollbackRuntimeState(previousState, tunnel.ID, tunnel.InterfaceName); rollbackErr != nil {
 			return config.Tunnel{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 		}
 		s.log("error", "tunnel.create.failed", "tunnel creation failed", tunnelAuditFields(tunnel), err)
 		return config.Tunnel{}, err
+	}
+	if s.cfg.ApplyConfig && warpRoutesNeedReconcile {
+		if err := s.reconcileWarpRuntimePersisted(); err != nil {
+			applyErr := &ApplyError{Err: err}
+			if rollbackErr := s.rollbackRuntimeAndWarp(previousState, tunnel.ID, tunnel.InterfaceName); rollbackErr != nil {
+				return config.Tunnel{}, errors.Join(applyErr, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			s.log("error", "tunnel.create.failed", "WARP runtime reconciliation failed after tunnel creation", tunnelAuditFields(tunnel), err)
+			return config.Tunnel{}, applyErr
+		}
 	}
 	s.log("info", "tunnel.created", "tunnel created", tunnelAuditFields(tunnel), nil)
 	return tunnel, nil
@@ -377,6 +394,7 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 		return config.Tunnel{}, err
 	}
 	state.Tunnels[idx] = applyTunnelSettings(old, settings)
+	warpRoutesNeedReconcile := warpRoutesChanged(previousState, state)
 	state.UpdatedAt = state.Tunnels[idx].UpdatedAt
 	if err := s.store.Save(state); err != nil {
 		return config.Tunnel{}, err
@@ -412,6 +430,15 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 			return config.Tunnel{}, err
 		}
 	}
+	if s.cfg.ApplyConfig && old.Enabled && !state.Tunnels[idx].Enabled {
+		if err := s.runtimeOps.removeTunnel(old); err != nil {
+			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID); rollbackErr != nil {
+				return config.Tunnel{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			s.log("error", "tunnel.settings.failed", "tunnel runtime removal failed while disabling tunnel", tunnelAuditFields(old), err)
+			return config.Tunnel{}, &ApplyError{Err: err}
+		}
+	}
 	if old.InterfaceName != settings.Name {
 		_ = s.store.DeleteRenderedTunnel(old.InterfaceName)
 	}
@@ -425,6 +452,20 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 		}
 		s.log("error", "tunnel.settings.failed", "tunnel settings update failed", tunnelAuditFields(state.Tunnels[idx]), err)
 		return config.Tunnel{}, err
+	}
+	if s.cfg.ApplyConfig && warpRoutesNeedReconcile {
+		if err := s.reconcileWarpRuntimePersisted(); err != nil {
+			applyErr := &ApplyError{Err: err}
+			deleteRendered := []string{}
+			if old.InterfaceName != settings.Name {
+				deleteRendered = append(deleteRendered, settings.Name)
+			}
+			if rollbackErr := s.rollbackRuntimeAndWarp(previousState, old.ID, deleteRendered...); rollbackErr != nil {
+				return config.Tunnel{}, errors.Join(applyErr, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			s.log("error", "tunnel.settings.failed", "WARP runtime reconciliation failed after tunnel settings update", tunnelAuditFields(state.Tunnels[idx]), err)
+			return config.Tunnel{}, applyErr
+		}
 	}
 	s.log("info", "tunnel.settings.updated", "tunnel settings updated", tunnelAuditFields(state.Tunnels[idx]), nil)
 	return state.Tunnels[idx], nil
@@ -590,6 +631,7 @@ func (s *Service) DeleteTunnelWithConfirmation(tunnelID, confirmationName string
 		return err
 	}
 	state.Tunnels = append(state.Tunnels[:idx], state.Tunnels[idx+1:]...)
+	warpRoutesNeedReconcile := warpRoutesChanged(previousState, state)
 	state.UpdatedAt = time.Now().UTC()
 	if err := s.store.Save(state); err != nil {
 		return err
@@ -603,30 +645,32 @@ func (s *Service) DeleteTunnelWithConfirmation(tunnelID, confirmationName string
 			s.log("error", "tunnel.delete.failed", "legacy firewall migration failed during tunnel delete", tunnelAuditFields(tunnel), err)
 			return applyErr
 		}
-		if err := exec.Command("awg-quick", "down", tunnel.InterfaceName).Run(); err != nil {
+		if err := s.runtimeOps.removeTunnel(tunnel); err != nil {
 			if rollbackErr := s.rollbackRuntimeState(previousState, tunnel.ID); rollbackErr != nil {
 				return errors.Join(&ApplyError{Err: err}, fmt.Errorf("rollback failed: %w", rollbackErr))
 			}
-			s.log("error", "tunnel.delete.failed", "tunnel delete runtime down failed", tunnelAuditFields(tunnel), err)
+			s.log("error", "tunnel.delete.failed", "tunnel runtime removal failed during tunnel delete", tunnelAuditFields(tunnel), err)
 			return &ApplyError{Err: err}
 		}
-		if err := s.cleanupFirewallRules(tunnel); err != nil {
-			if rollbackErr := s.rollbackRuntimeState(previousState, tunnel.ID); rollbackErr != nil {
-				return errors.Join(&ApplyError{Err: err}, fmt.Errorf("rollback failed: %w", rollbackErr))
+		if warpRoutesNeedReconcile {
+			if err := s.reconcileWarpRuntimePersisted(); err != nil {
+				applyErr := &ApplyError{Err: err}
+				if rollbackErr := s.rollbackRuntimeAndWarp(previousState, tunnel.ID); rollbackErr != nil {
+					return errors.Join(applyErr, fmt.Errorf("rollback failed: %w", rollbackErr))
+				}
+				s.log("error", "tunnel.delete.failed", "WARP runtime reconciliation failed after tunnel delete", tunnelAuditFields(tunnel), err)
+				return applyErr
 			}
-			s.log("error", "tunnel.delete.failed", "tunnel delete firewall cleanup failed", tunnelAuditFields(tunnel), err)
-			return &ApplyError{Err: err}
-		}
-		if err := s.reconcileWarpRuntime(state); err != nil {
-			if rollbackErr := s.rollbackRuntimeState(previousState, tunnel.ID); rollbackErr != nil {
-				return errors.Join(&ApplyError{Err: err}, fmt.Errorf("rollback failed: %w", rollbackErr))
-			}
-			s.log("error", "tunnel.delete.failed", "WARP runtime reconciliation failed after tunnel delete", tunnelAuditFields(tunnel), err)
-			return &ApplyError{Err: err}
 		}
 	}
 	if err := s.store.DeleteRenderedTunnel(tunnel.InterfaceName); err != nil {
-		if rollbackErr := s.rollbackRuntimeState(previousState, tunnel.ID); rollbackErr != nil {
+		var rollbackErr error
+		if s.cfg.ApplyConfig && warpRoutesNeedReconcile {
+			rollbackErr = s.rollbackRuntimeAndWarp(previousState, tunnel.ID)
+		} else {
+			rollbackErr = s.rollbackRuntimeState(previousState, tunnel.ID)
+		}
+		if rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 		}
 		s.log("error", "tunnel.delete.failed", "tunnel rendered files deletion failed", tunnelAuditFields(tunnel), err)
@@ -658,7 +702,14 @@ func (s *Service) newTunnel(spec tunnelSpec) (config.Tunnel, error) {
 	if err != nil {
 		return config.Tunnel{}, err
 	}
+	secrets, err := protocol.GenerateSecrets(p)
+	if err != nil {
+		return config.Tunnel{}, err
+	}
 	if err := p.Validate(params); err != nil {
+		return config.Tunnel{}, err
+	}
+	if err := protocol.ValidateSecrets(p, secrets); err != nil {
 		return config.Tunnel{}, err
 	}
 	normalizedSubnet, _, err := normalizeIPv4CIDR(spec.IPv4Subnet)
@@ -682,16 +733,44 @@ func (s *Service) newTunnel(spec tunnelSpec) (config.Tunnel, error) {
 		DNS:               s.cfg.DNS,
 		AllowedIPs:        s.cfg.AllowedIPs,
 		Keepalive:         s.cfg.PersistentKeepalive,
-		MTU:               s.cfg.MTU,
+		MTU:               initialTunnelMTU(spec.ProfileID, s.cfg.MTU),
 		ServerPrivateKey:  priv,
 		ServerPublicKey:   pub,
 		ProtocolProfileID: spec.ProfileID,
 		ProtocolParams:    params,
+		ProtocolSecrets:   secrets,
 		ConfigRevision:    1,
 		Clients:           []config.Client{},
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}, nil
+}
+
+func initialTunnelMTU(profileID string, configured int) int {
+	if configured == 0 && isAWG3Profile(profileID) {
+		return 1280
+	}
+	return configured
+}
+
+func (s *Service) profileAvailable(profileID string) bool {
+	switch profileID {
+	case "awg_3":
+		return buildinfo.AWG3RuntimeEnabled()
+	}
+	_, ok := protocol.ByID(profileID)
+	return ok
+}
+
+func isAWG3Profile(profileID string) bool {
+	return profileID == "awg_3"
+}
+
+func profileDisplayName(profileID string) string {
+	if profile, ok := protocol.ByID(profileID); ok {
+		return profile.DisplayName()
+	}
+	return profileID
 }
 
 func tunnelConfigChanged(old, next config.Tunnel) bool {

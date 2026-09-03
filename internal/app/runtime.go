@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -231,7 +232,7 @@ func (s *Service) apply(tunnel config.Tunnel) error {
 		return err
 	}
 	if err := exec.Command("ip", "link", "show", tunnel.InterfaceName).Run(); err != nil {
-		if err := runAWGQuick("up", tunnel.InterfaceName); err != nil {
+		if err := runAWGQuickForTunnel(tunnel, "up", tunnel.InterfaceName); err != nil {
 			return err
 		}
 		return s.ensureFirewallRules(tunnel)
@@ -246,6 +247,25 @@ func (s *Service) apply(tunnel config.Tunnel) error {
 		return fmt.Errorf("awg syncconf failed: %w", err)
 	}
 	return s.ensureFirewallRules(tunnel)
+}
+
+func (s *Service) removeTunnelRuntime(tunnel config.Tunnel) error {
+	var removeErrors []error
+	if exec.Command("ip", "link", "show", tunnel.InterfaceName).Run() == nil {
+		if err := runAWGQuickForTunnel(tunnel, "down", tunnel.InterfaceName); err != nil {
+			removeErrors = append(removeErrors, err)
+		}
+	}
+	if err := s.cleanupFirewallRules(tunnel); err != nil {
+		removeErrors = append(removeErrors, err)
+	}
+	runtimePath, err := runtimeConfigPath(tunnel.InterfaceName)
+	if err != nil {
+		removeErrors = append(removeErrors, err)
+	} else if err := os.Remove(runtimePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		removeErrors = append(removeErrors, fmt.Errorf("remove runtime config: %w", err))
+	}
+	return errors.Join(removeErrors...)
 }
 
 func (s *Service) reconcileWarpRuntime(state config.State) error {
@@ -280,6 +300,47 @@ func (s *Service) reconcileWarpRuntime(state config.State) error {
 		return err
 	}
 	return nil
+}
+
+func warpRuntimeRequired(state config.State) bool {
+	return state.Warp.Configured() || len(warp.RoutesForState(state)) > 0
+}
+
+func warpRoutesChanged(previous, current config.State) bool {
+	return !slices.Equal(warp.RoutesForState(previous), warp.RoutesForState(current))
+}
+
+func (s *Service) reconcileWarpRuntimePersisted() error {
+	state, err := s.store.Load()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	applyErr := s.reconcileWarpRuntimeStatus(&state, now)
+	if saveErr := s.store.Save(state); saveErr != nil {
+		if applyErr != nil {
+			return errors.Join(applyErr, fmt.Errorf("save WARP apply status: %w", saveErr))
+		}
+		return saveErr
+	}
+	return applyErr
+}
+
+func (s *Service) reconcileWarpRuntimeStatus(state *config.State, now time.Time) error {
+	err := s.runtimeOps.reconcileWarp(*state)
+	recordWarpApplyResult(state, now, err)
+	return err
+}
+
+func recordWarpApplyResult(state *config.State, now time.Time, err error) {
+	state.Warp.UpdatedAt = now
+	state.UpdatedAt = now
+	if err != nil {
+		state.Warp.LastApplyError = err.Error()
+		return
+	}
+	state.Warp.LastApplyAt = now
+	state.Warp.LastApplyError = ""
 }
 
 func (s *Service) ensureFirewallRules(tunnel config.Tunnel) error {
@@ -509,11 +570,49 @@ func byteDelta(before, after uint64) uint64 {
 }
 
 func runAWGQuick(args ...string) error {
-	err := exec.Command("awg-quick", args...).Run()
+	return runAWGQuickWithEnv(nil, args...)
+}
+
+func runAWGQuickForTunnel(tunnel config.Tunnel, args ...string) error {
+	if !isAWG3Profile(tunnel.ProtocolProfileID) {
+		return runAWGQuick(args...)
+	}
+	return runAWGQuickWithEnv([]string{"AWG_QUICK_FORCE_USERSPACE=1"}, args...)
+}
+
+func runAWGQuickWithEnv(extraEnv []string, args ...string) error {
+	cmd := exec.Command("awg-quick", args...)
+	if len(extraEnv) > 0 {
+		cmd.Env = mergedEnv(os.Environ(), extraEnv)
+	}
+	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("awg-quick %s failed: %w", strings.Join(args, " "), err)
 	}
 	return nil
+}
+
+func mergedEnv(base, overrides []string) []string {
+	result := append([]string(nil), base...)
+	for _, override := range overrides {
+		key, _, ok := strings.Cut(override, "=")
+		if !ok {
+			continue
+		}
+		prefix := key + "="
+		replaced := false
+		for idx, value := range result {
+			if strings.HasPrefix(value, prefix) {
+				result[idx] = override
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			result = append(result, override)
+		}
+	}
+	return result
 }
 
 func runtimeConfigHasLegacyFirewallRules(path string, tunnel config.Tunnel) (bool, error) {

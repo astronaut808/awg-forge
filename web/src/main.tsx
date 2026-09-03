@@ -26,6 +26,7 @@ import {
   downloadResponse,
   expirationValue,
   formatBytes,
+  isExperimentalProfile,
   profileTitle,
   relativeTime,
 } from "./utils";
@@ -48,6 +49,8 @@ type TrafficLimitUnit = "mib" | "gib" | "tib";
 type TrafficLimitPeriod = "lifetime" | "rolling_30d";
 type LoadResult = "ok" | "unauthorized" | "failed";
 type PortSelectionMode = "automatic" | "manual";
+type RunActionOptions = { reload?: boolean; close?: boolean; errorMode?: "toast" | "inline" };
+type RunAction = (label: string, fn: () => Promise<unknown>, options?: RunActionOptions) => Promise<void>;
 
 function qrImageKey(clientID: string, mode: QRImportMode, chunk: number): string {
   return `${clientID}:${mode}:${mode === "amneziavpn" ? chunk : 0}`;
@@ -156,13 +159,14 @@ function App() {
     globalThis.setTimeout(() => setToast((current) => (current === message ? "" : current)), 3600);
   }
 
-  async function runAction(label: string, fn: () => Promise<unknown>, options: { reload?: boolean; close?: boolean } = { reload: true }) {
+  async function runAction(label: string, fn: () => Promise<unknown>, options: RunActionOptions = { reload: true }) {
     try {
       await fn();
       if (options.close !== false) setModal(null);
       if (options.reload !== false) await load({ quiet: true });
       notify(label);
     } catch (err) {
+      if (options.errorMode === "inline") throw err;
       const message = actionErrorMessage(err, m);
       if (message.includes("apply failed")) {
         setModal(null);
@@ -228,9 +232,10 @@ function App() {
       {modal && (
         <Dialog onClose={() => setModal(null)}>
           <ModalContent modal={modal} state={state} notify={notify} close={() => setModal(null)} reload={async () => { await load({ quiet: true }); }} runAction={runAction} />
+          <Toast message={toast} />
         </Dialog>
       )}
-      <Toast message={toast} />
+      {!modal && <Toast message={toast} />}
     </Shell>
     </I18nContext.Provider>
   );
@@ -364,11 +369,13 @@ function TunnelFirstDashboard({ profiles, tunnels, filter, setFilter, onCreateTu
   renderTunnel: (tunnel: Tunnel) => preact.ComponentChildren;
 }) {
   const { m } = useI18n();
-  const effectiveFilter = filter === "all" || profiles.some((profile) => profile.id === filter) ? filter : "all";
+  const profileCounts = new Map(profiles.map((profile) => [profile.id, tunnels.filter((tunnel) => tunnel.profile === profile.id).length]));
+  const countFor = (profileID: string) => profileCounts.get(profileID) || 0;
+  const filterProfiles = profiles.filter((profile) => countFor(profile.id) > 0);
+  const effectiveFilter = filter === "all" || filterProfiles.some((profile) => profile.id === filter) ? filter : "all";
   const filteredProfile = profiles.find((profile) => profile.id === effectiveFilter);
   const visibleProfiles = profiles.filter((profile) => effectiveFilter === "all" || profile.id === effectiveFilter);
   const visibleTunnels = effectiveFilter === "all" ? tunnels : tunnels.filter((tunnel) => tunnel.profile === effectiveFilter);
-  const countFor = (profileID: string) => tunnels.filter((tunnel) => tunnel.profile === profileID).length;
   return (
     <section class="panel stack dashboard-v2">
       <div class="section-head">
@@ -376,8 +383,8 @@ function TunnelFirstDashboard({ profiles, tunnels, filter, setFilter, onCreateTu
           <h2>{m.dashboard.tunnels}</h2>
           <div class="filter-row" aria-label={m.aria.tunnelFilters}>
             <button className={classNames("filter-pill", effectiveFilter === "all" && "active")} type="button" onClick={() => setFilter("all")}><span class="filter-label">{m.common.all}</span><span class="filter-count">{tunnels.length}</span></button>
-            {profiles.map((profile) => (
-              <button key={profile.id} className={classNames("filter-pill", countFor(profile.id) === 0 && "is-empty", effectiveFilter === profile.id && "active")} type="button" onClick={() => setFilter(profile.id)} title={`${profileTitle(profile.id)} · ${m.dashboard.tunnelCount(countFor(profile.id))}`}>
+            {filterProfiles.map((profile) => (
+              <button key={profile.id} className={classNames("filter-pill", effectiveFilter === profile.id && "active")} type="button" onClick={() => setFilter(profile.id)} title={`${profileTitle(profile.id)} · ${m.dashboard.tunnelCount(countFor(profile.id))}`}>
                 <span class="filter-label">{profile.tab}</span><span class="filter-count">{countFor(profile.id)}</span>
               </button>
             ))}
@@ -399,7 +406,7 @@ function TunnelFirstDashboard({ profiles, tunnels, filter, setFilter, onCreateTu
             return (
               <section class="profile-group" key={profile.id}>
                 <div class="profile-group-head">
-                  <h3>{profileTitle(profile.id)}</h3>
+                  <div class="profile-group-title"><h3>{profileTitle(profile.id)}</h3>{isExperimentalProfile(profile.id) && <Badge tone="warn">{m.common.experimental}</Badge>}</div>
                   <span>{m.dashboard.tunnelCount(group.length)}</span>
                 </div>
                 <div className={classNames("tunnel-grid", group.length === 1 && "single")}>
@@ -437,10 +444,7 @@ function TunnelCard(props: {
   return (
     <article class="tunnel-card panel">
       <div class="tunnel-head">
-        <div>
-          <h3>{tunnel.name}</h3>
-          <p>{tunnel.interface} · {profileTitle(tunnel.profile)}</p>
-        </div>
+        <h3>{tunnel.name}</h3>
         <Badge tone={tunnel.status?.up ? "ok" : "bad"}>{tunnel.status?.up ? m.status.up : m.status.down}</Badge>
       </div>
       <div class="facts">
@@ -484,17 +488,19 @@ function ClientRow({ client, onConfig, onSettings, onToggle, onDelete }: { clien
   const { m, locale } = useI18n();
   const lastSeen = client.runtime?.last_seen_at || client.last_seen_at;
   const status = client.expired ? "expired" : activeLabel(lastSeen);
-  const statusText = clientStatusText(status, m);
+  const online = client.enabled && !client.expired && status === "active now";
+  const visualState = online ? "online" : client.enabled && !client.expired ? "enabled" : "disabled";
+  const visualStatus = client.expired ? m.status.expired : online ? m.status.activeNow : client.enabled ? m.common.enabled : m.common.disabled;
+  const visualTone = client.expired ? "warn" : online ? "ok" : client.enabled ? "brand" : "neutral";
   const enableBlockedByTrafficLimit = !client.enabled && Boolean(client.traffic?.exceeded);
   return (
-    <div className={classNames("client-row", !client.active && "dimmed")}>
+    <div className={classNames("client-row", `client-status-${visualState}`)}>
       <div class="client-main">
         <div class="client-title">
-          <span class="status-dot" />
+          <span class="status-dot" aria-hidden="true" />
           <strong>{client.name}</strong>
-          <Badge tone={client.active ? "ok" : "neutral"}>{client.expired ? m.status.expired : client.enabled ? m.common.enabled : m.common.disabled}</Badge>
+          <Badge tone={visualTone}>{visualStatus}</Badge>
           {client.traffic?.exceeded && <Badge tone="bad">{m.status.limitExceeded}</Badge>}
-          <Badge tone={status === "active now" ? "ok" : status === "seen recently" ? "neutral" : "muted"}>{statusText}</Badge>
           {client.needs_new_config && <Badge tone="warn">{m.common.stale}</Badge>}
         </div>
         <p class="mono">{client.address}</p>
@@ -530,22 +536,25 @@ function ModalContent({ modal, state, notify, close, reload, runAction }: {
   notify: (message: string) => void;
   close: () => void;
   reload: () => Promise<void>;
-  runAction: (label: string, fn: () => Promise<unknown>, options?: { reload?: boolean; close?: boolean }) => Promise<void>;
+  runAction: RunAction;
 }) {
   if (modal.kind === "create-tunnel") return <CreateTunnelForm state={state} profile={modal.profile} runAction={runAction} />;
   if (modal.kind === "settings") return <TunnelSettingsForm state={state} tunnel={modal.tunnel} runAction={runAction} />;
   if (modal.kind === "protocol") return <ProtocolForm tunnel={modal.tunnel} runAction={runAction} />;
   if (modal.kind === "create-client") return <CreateClientForm tunnel={modal.tunnel} trafficLimitsEnabled={state.database.enabled} runAction={runAction} />;
   if (modal.kind === "client-settings") return <ClientSettingsForm client={modal.client} runAction={runAction} />;
-  if (modal.kind === "client-config") return <ClientConfigPanel client={modal.client} notify={notify} />;
+  if (modal.kind === "client-config") {
+    return <ClientConfigPanel key={modal.client.id} client={modal.client} notify={notify} />;
+  }
   if (modal.kind === "delete-tunnel") return <DeleteTunnelConfirmation tunnel={modal.tunnel} close={close} runAction={runAction} />;
   return <MaintenanceCenter state={state} notify={notify} close={close} reload={reload} />;
 }
 
-function DeleteTunnelConfirmation({ tunnel, close, runAction }: { tunnel: Tunnel; close: () => void; runAction: (label: string, fn: () => Promise<unknown>) => Promise<void> }) {
+function DeleteTunnelConfirmation({ tunnel, close, runAction }: { tunnel: Tunnel; close: () => void; runAction: RunAction }) {
   const { m } = useI18n();
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const confirmationRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     confirmationRef.current?.focus();
@@ -555,20 +564,24 @@ function DeleteTunnelConfirmation({ tunnel, close, runAction }: { tunnel: Tunnel
       event.preventDefault();
       if (confirmation !== tunnel.name) return;
       setBusy(true);
+      setError("");
       try {
-        await runAction(m.actions.tunnelDeleted, () => api.deleteTunnel(tunnel.id, confirmation));
+        await runAction(m.actions.tunnelDeleted, () => api.deleteTunnel(tunnel.id, confirmation), { errorMode: "inline" });
+      } catch (err) {
+        setError(actionErrorMessage(err, m));
       } finally {
         setBusy(false);
       }
     }}>
       <p class="note">{m.actions.deleteTunnelConnectedWarning}</p>
       <label>{m.actions.deleteTunnelTypeName(tunnel.name)}<input ref={confirmationRef} aria-label={m.actions.deleteTunnelNameLabel} value={confirmation} onInput={(event) => setConfirmation((event.currentTarget as HTMLInputElement).value)} /></label>
+      {error && <p class="form-error" role="alert" aria-live="assertive">{error}</p>}
       <div class="form-actions"><button class="button" type="button" onClick={close}>{m.common.close}</button><button class="button danger" disabled={busy || confirmation !== tunnel.name} type="submit"><ButtonContent busy={busy}>{m.common.delete}</ButtonContent></button></div>
     </form>
   </PanelTitle>;
 }
 
-function CreateTunnelForm({ state, profile, runAction }: { state: AppState; profile: Profile; runAction: (label: string, fn: () => Promise<unknown>) => Promise<void> }) {
+function CreateTunnelForm({ state, profile, runAction }: { state: AppState; profile: Profile; runAction: RunAction }) {
   const { m } = useI18n();
   const profiles = state.profiles.length ? state.profiles : [profile];
   const [profileID, setProfileID] = useState(profile.id);
@@ -600,9 +613,9 @@ function CreateTunnelForm({ state, profile, runAction }: { state: AppState; prof
     const port = portMode === "automatic" ? suggestedPort : Number(field(form, "port"));
     return runAction(m.forms.tunnelCreated, () => port
       ? api.createTunnel({ profile: field(form, "profile"), name: field(form, "name"), port, automatic_port: portMode === "automatic", subnet: field(form, "subnet"), egress_mode: field(form, "egress_mode") })
-      : Promise.reject(new Error(m.forms.portSuggestionFailed)));
+      : Promise.reject(new Error(m.forms.portSuggestionFailed)), { errorMode: "inline" });
   }}>
-    <label>{m.forms.protocol}<select aria-label={m.forms.protocol} name="profile" value={selected.id} onInput={(event) => setProfileID((event.currentTarget as HTMLSelectElement).value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{profileTitle(item.id)}</option>)}</select></label>
+    <label>{m.forms.protocol}<select aria-label={m.forms.protocol} name="profile" value={selected.id} onInput={(event) => setProfileID((event.currentTarget as HTMLSelectElement).value)}>{profiles.map((item) => <option key={item.id} value={item.id}>{profileTitle(item.id)}{isExperimentalProfile(item.id) ? ` · ${m.common.experimental}` : ""}</option>)}</select></label>
     <label>{m.forms.nameInterface}<input key={`${selected.id}-name`} aria-label={m.forms.nameInterface} name="name" defaultValue={selected.suggested_name || "awg0"} /></label>
     <label>{m.forms.portSelection}<select aria-label={m.forms.portSelection} value={portMode} onInput={(event) => setPortMode((event.currentTarget as HTMLSelectElement).value as PortSelectionMode)}><option value="automatic">{m.forms.automaticPort}</option><option value="manual">{m.forms.manualPort}</option></select></label>
     <div class="form-field"><span class="field-title">{m.forms.listenPort}</span><span class="port-input-wrap">
@@ -618,7 +631,7 @@ function CreateTunnelForm({ state, profile, runAction }: { state: AppState; prof
   </Form>;
 }
 
-function TunnelSettingsForm({ state, tunnel, runAction }: { state: AppState; tunnel: Tunnel; runAction: (label: string, fn: () => Promise<unknown>) => Promise<void> }) {
+function TunnelSettingsForm({ state, tunnel, runAction }: { state: AppState; tunnel: Tunnel; runAction: RunAction }) {
   const { m } = useI18n();
   const [egressMode, setEgressMode] = useState(tunnel.egress_mode || "wan");
   useEffect(() => {
@@ -635,7 +648,7 @@ function TunnelSettingsForm({ state, tunnel, runAction }: { state: AppState; tun
     keepalive: Number(field(form, "keepalive")),
     mtu: mtuValue(form),
     enabled: (form.elements.namedItem("enabled") as HTMLInputElement)?.checked || false,
-  }))}>
+  }), { errorMode: "inline" })}>
     <label>{m.forms.nameInterface}<input aria-label={m.forms.nameInterface} name="name" defaultValue={tunnel.name} /></label>
     <label>{m.forms.serverHost}<input aria-label={m.forms.serverHost} name="server_host" defaultValue={tunnel.server_host || ""} placeholder={state.server_host} /></label>
     <label>{m.forms.egress}<select aria-label={m.forms.egress} name="egress_mode" value={egressMode} onInput={(event) => setEgressMode((event.currentTarget as HTMLSelectElement).value)}><option value="wan">{m.forms.serverWAN}</option><option value="warp">{m.forms.cloudflareWARP}</option></select></label>
@@ -653,14 +666,17 @@ function TunnelSettingsForm({ state, tunnel, runAction }: { state: AppState; tun
   </Form>;
 }
 
-function ProtocolForm({ tunnel, runAction }: { tunnel: Tunnel; runAction: (label: string, fn: () => Promise<unknown>) => Promise<void> }) {
+function ProtocolForm({ tunnel, runAction }: { tunnel: Tunnel; runAction: RunAction }) {
   const { m } = useI18n();
   return <Form title={m.forms.protocolTitle} subtitle={`${tunnel.name} · ${tunnel.profile}`} submit={m.forms.saveProtocol} secondary={<button class="button" type="button" onClick={() => confirm(m.forms.regenerateConfirm) && void runAction(m.forms.protocolRegenerated, () => api.regenerateProtocol(tunnel.id, tunnel.profile))}>{m.forms.regenerate}</button>} onSubmit={(form) => {
     const params: Record<string, string> = {};
     for (const item of tunnel.params) params[item.key] = field(form, item.key).trim();
-    return runAction(m.forms.protocolSaved, () => api.updateProtocol(tunnel.id, tunnel.profile, params));
+    return runAction(m.forms.protocolSaved, () => api.updateProtocol(tunnel.id, tunnel.profile, params), { errorMode: "inline" });
   }}>
-    {tunnel.params.map((item) => item.key.startsWith("I") ? (
+    {tunnel.profile === "awg_3" && <p class="form-note">{m.forms.awg3Warning}</p>}
+    {tunnel.params.map((item) => item.key === "RandomTrailers" || item.key === "DisableCookies" ? (
+      <label key={item.key}>{item.key}<select aria-label={item.key} name={item.key} defaultValue={item.value || "off"}><option value="off">off</option><option value="on">on</option></select></label>
+    ) : item.key.startsWith("I") ? (
       <label key={item.key}>{item.key}<textarea aria-label={item.key} name={item.key} defaultValue={item.value || ""} /></label>
     ) : (
       <label key={item.key}>{item.key}<input aria-label={item.key} name={item.key} defaultValue={item.value || ""} /></label>
@@ -668,19 +684,19 @@ function ProtocolForm({ tunnel, runAction }: { tunnel: Tunnel; runAction: (label
   </Form>;
 }
 
-function CreateClientForm({ tunnel, trafficLimitsEnabled, runAction }: { tunnel: Tunnel; trafficLimitsEnabled: boolean; runAction: (label: string, fn: () => Promise<unknown>, options?: { reload?: boolean; close?: boolean }) => Promise<void> }) {
+function CreateClientForm({ tunnel, trafficLimitsEnabled, runAction }: { tunnel: Tunnel; trafficLimitsEnabled: boolean; runAction: RunAction }) {
   const { m } = useI18n();
   return <Form title={m.forms.createClientTitle} subtitle={`${tunnel.name} · ${tunnel.profile}`} submit={m.common.createClient} onSubmit={(form) => runAction(m.forms.clientCreatedOpenConfig, async () => {
     const trafficLimit = trafficLimitsEnabled ? trafficLimitFromForm(form, m.forms.trafficLimitInvalid) : { bytes: null, period: "lifetime" as TrafficLimitPeriod };
     await api.createClient(tunnel.id, field(form, "name"), expirationFromForm(form), trafficLimit.bytes, trafficLimit.period);
-  })}>
+  }, { errorMode: "inline" })}>
     <label>{m.forms.clientName}<input aria-label={m.forms.clientName} name="name" /></label>
     <ExpirationField />
     {trafficLimitsEnabled && <TrafficLimitField />}
   </Form>;
 }
 
-function ClientSettingsForm({ client, runAction }: { client: Client; runAction: (label: string, fn: () => Promise<unknown>) => Promise<void> }) {
+function ClientSettingsForm({ client, runAction }: { client: Client; runAction: RunAction }) {
   const { m } = useI18n();
   return <Form title={m.forms.clientSettingsTitle} subtitle={`${client.name} · ${client.address}`} submit={m.common.save} onSubmit={(form) => runAction(m.forms.clientSaved, async () => {
     await api.updateClient(client.id, { name: field(form, "name"), notes: field(form, "notes"), expires_at: expirationFromForm(form, client.expires_at) });
@@ -688,7 +704,7 @@ function ClientSettingsForm({ client, runAction }: { client: Client; runAction: 
       const trafficLimit = trafficLimitFromForm(form, m.forms.trafficLimitInvalid);
       await api.updateClientTrafficLimit(client.id, trafficLimit.bytes, trafficLimit.period);
     }
-  })}>
+  }, { errorMode: "inline" })}>
     <label>{m.forms.clientName}<input aria-label={m.forms.clientName} name="name" defaultValue={client.name} /></label>
     <ExpirationField current={client.expires_at} keepCurrent />
     {client.traffic?.enabled && <TrafficLimitField limitBytes={client.traffic.limit_bytes} limitPeriod={client.traffic.limit_period} exceeded={client.traffic.exceeded} />}
@@ -772,21 +788,22 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
   const [failedQRKeys, setFailedQRKeys] = useState<Record<string, boolean>>({});
   const [expandedQR, setExpandedQR] = useState<ExpandedQR | null>(null);
   const [busy, setBusy] = useState(false);
+  const activeQRMode: QRImportMode = qrMode;
   const hasVPNQRSeries = vpnQRChunks > 1;
   const vpnQRDownloadName = hasVPNQRSeries ? `${client.name}-amneziavpn-${vpnQRChunk + 1}-of-${vpnQRChunks}.png` : `${client.name}-amneziavpn.png`;
-  const activeQRKey = qrImageKey(client.id, qrMode, vpnQRChunk);
-  const activeQRRequestURL = qrMode === "amneziavpn"
+  const activeQRKey = qrImageKey(client.id, activeQRMode, vpnQRChunk);
+  const activeQRRequestURL = activeQRMode === "amneziavpn"
     ? api.clientAmneziaVPNQRCodeURL(client.id, vpnQRChunk)
     : api.clientQRCodeURL(client.id);
   const activeQRURL = qrImageURLs[activeQRKey] || "";
   const activeQRLoading = Boolean(loadingQRKeys[activeQRKey]);
   const activeQRFailed = Boolean(failedQRKeys[activeQRKey]);
-  const activeQRTitle = qrMode === "amneziavpn" ? m.clientConfig.amneziaVPNQR : m.clientConfig.amneziaWGQR;
-  const activeQRDescription = qrMode === "amneziavpn"
+  const activeQRTitle = activeQRMode === "amneziavpn" ? m.clientConfig.amneziaVPNQR : m.clientConfig.amneziaWGQR;
+  const activeQRDescription = activeQRMode === "amneziavpn"
     ? m.clientConfig.amneziaVPNDescription
     : m.clientConfig.amneziaWGDescription;
-  const activeQRAlt = qrMode === "amneziavpn" ? m.clientConfig.amneziaVPNAlt(client.name) : m.clientConfig.amneziaWGAlt(client.name);
-  const activeQRDownloadName = qrMode === "amneziavpn" ? vpnQRDownloadName : `${client.name}-amneziawg.png`;
+  const activeQRAlt = activeQRMode === "amneziavpn" ? m.clientConfig.amneziaVPNAlt(client.name) : m.clientConfig.amneziaWGAlt(client.name);
+  const activeQRDownloadName = activeQRMode === "amneziavpn" ? vpnQRDownloadName : `${client.name}-amneziawg.png`;
   const expandedQRKey = expandedQR ? qrImageKey(client.id, expandedQR.mode, expandedQR.chunk) : "";
   const expandedQRURL = expandedQRKey ? qrImageURLs[expandedQRKey] || "" : "";
   const expandedQRTitle = expandedQR?.mode === "amneziavpn" ? m.clientConfig.amneziaVPNQR : m.clientConfig.amneziaWGQR;
@@ -801,9 +818,6 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
   }, [notify]);
 
   useEffect(() => {
-    setQRImageURLs({});
-    setLoadingQRKeys({});
-    setFailedQRKeys({});
     return () => {
       for (const url of Object.values(qrImageURLsRef.current)) URL.revokeObjectURL(url);
       qrImageURLsRef.current = {};
@@ -917,14 +931,14 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
           <button class={qrMode === "amneziawg" ? "active" : ""} type="button" role="tab" aria-selected={qrMode === "amneziawg"} onClick={() => setQRMode("amneziawg")}>AmneziaWG</button>
         </div>
         <div class="qr-panel">
-          {activeQRURL && <button class="qr-image-button" type="button" onClick={() => setExpandedQR({ mode: qrMode, chunk: vpnQRChunk })} aria-label={m.clientConfig.openLarger(activeQRTitle)}>
+          {activeQRURL && <button class="qr-image-button" type="button" onClick={() => setExpandedQR({ mode: activeQRMode, chunk: vpnQRChunk })} aria-label={m.clientConfig.openLarger(activeQRTitle)}>
             <img class="qr-image" src={activeQRURL} alt={activeQRAlt} />
           </button>}
           {!activeQRURL && <div class="qr-image-loading" role={activeQRFailed ? "alert" : "status"}>
             <span>{activeQRFailed ? m.common.requestFailed : m.common.loading}</span>
             {activeQRFailed && <button class="button" type="button" onClick={retryActiveQR}>{m.common.retry}</button>}
           </div>}
-          {qrMode === "amneziavpn" && hasVPNQRSeries && <div class="qr-series">
+          {activeQRMode === "amneziavpn" && hasVPNQRSeries && <div class="qr-series">
             <button class="button" type="button" disabled={vpnQRChunk === 0} onClick={() => selectVPNQRChunk(Math.max(0, vpnQRChunk - 1))}>{m.clientConfig.previous}</button>
             <span>{m.clientConfig.qrCounter(vpnQRChunk + 1, vpnQRChunks)}</span>
             <button class="button" type="button" disabled={vpnQRChunk + 1 >= vpnQRChunks} onClick={() => selectVPNQRChunk(Math.min(vpnQRChunks - 1, vpnQRChunk + 1))}>{m.clientConfig.next}</button>
@@ -932,7 +946,7 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
         </div>
         <div class="action-row">
           {activeQRURL
-            ? <a class="button" href={activeQRURL} download={activeQRDownloadName}>{m.clientConfig.downloadQR} {qrMode === "amneziavpn" && hasVPNQRSeries ? `${vpnQRChunk + 1}` : ""}</a>
+            ? <a class="button" href={activeQRURL} download={activeQRDownloadName}>{m.clientConfig.downloadQR} {activeQRMode === "amneziavpn" && hasVPNQRSeries ? `${vpnQRChunk + 1}` : ""}</a>
             : <button class="button" type="button" disabled>{activeQRLoading ? m.common.loading : m.clientConfig.downloadQR}</button>}
         </div>
       </section>
@@ -1181,7 +1195,7 @@ function SupportPanel({ state, action, busyAction }: { state: AppState; action: 
       </div>
     </section>
     <pre class="command-block">{`docker exec awg-forge awg-forge doctor
-docker exec awg-forge awg show
+docker exec awg-forge awg-forge firewall check
 docker compose logs -f`}</pre>
   </div>;
 }
@@ -1251,8 +1265,21 @@ function RestorePanel({ report, setReport, notify }: { report: RestoreReport | n
 }
 
 function Form({ title, subtitle, submit, secondary, onSubmit, children }: { title: string; subtitle: string; submit: string; secondary?: preact.ComponentChildren; onSubmit: (form: HTMLFormElement) => Promise<void>; children: preact.ComponentChildren }) {
+  const { m } = useI18n();
   const [busy, setBusy] = useState(false);
-  return <PanelTitle title={title} subtitle={subtitle}><form class="form" onSubmit={async (event) => { event.preventDefault(); setBusy(true); try { await onSubmit(event.currentTarget as HTMLFormElement); } finally { setBusy(false); } }}>{children}<div class="form-actions">{secondary}<button class="button primary" disabled={busy} type="submit"><ButtonContent busy={busy}>{submit}</ButtonContent></button></div></form></PanelTitle>;
+  const [error, setError] = useState("");
+  return <PanelTitle title={title} subtitle={subtitle}><form class="form" onSubmit={async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await onSubmit(event.currentTarget as HTMLFormElement);
+    } catch (err) {
+      setError(actionErrorMessage(err, m));
+    } finally {
+      setBusy(false);
+    }
+  }}>{children}{error && <p class="form-error" role="alert" aria-live="assertive">{error}</p>}<div class="form-actions">{secondary}<button class="button primary" disabled={busy} type="submit"><ButtonContent busy={busy}>{submit}</ButtonContent></button></div></form></PanelTitle>;
 }
 
 function Dialog({ onClose, children }: { onClose: () => void; children: preact.ComponentChildren }) {
@@ -1272,6 +1299,7 @@ function Dialog({ onClose, children }: { onClose: () => void; children: preact.C
     }
 
     return () => {
+      dialog?.close();
       const target = previousFocus.current;
       if (target instanceof HTMLElement) target.focus();
     };
@@ -1424,18 +1452,10 @@ function errorMessage(err: unknown, fallback = "request failed"): string {
 }
 
 function actionErrorMessage(err: unknown, m: Messages): string {
-  if (err instanceof api.APIError && err.status === 409 && err.message.includes("traffic limit exceeded")) {
+  if (err instanceof api.APIError && err.status === 409 && err.code === "traffic_limit_exceeded") {
     return m.forms.trafficLimitEnableBlocked;
   }
   return errorMessage(err, m.common.requestFailed);
-}
-
-function clientStatusText(status: ReturnType<typeof activeLabel> | "expired", m: Messages): string {
-  if (status === "active now") return m.status.activeNow;
-  if (status === "seen recently") return m.status.seenRecently;
-  if (status === "never seen") return m.status.neverSeen;
-  if (status === "expired") return m.status.expired;
-  return m.status.offline;
 }
 
 function toneFromLevel(level: Level): string {
