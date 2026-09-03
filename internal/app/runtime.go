@@ -269,13 +269,38 @@ func (s *Service) removeTunnelRuntime(tunnel config.Tunnel) error {
 }
 
 func (s *Service) reconcileWarpRuntime(state config.State) error {
+	commands := warpRuntimeCommands{
+		interfaceExists: func(interfaceName string) bool {
+			return exec.Command("ip", "link", "show", interfaceName).Run() == nil
+		},
+		down: func(interfaceName string) error {
+			return runAWGQuick("down", interfaceName)
+		},
+		up: func(interfaceName string) error {
+			return runAWGQuick("up", interfaceName)
+		},
+	}
+	return reconcileWarpRuntime(state, runtimeConfigDir, commands)
+}
+
+type warpRuntimeCommands struct {
+	interfaceExists func(string) bool
+	down            func(string) error
+	up              func(string) error
+}
+
+func reconcileWarpRuntime(state config.State, runtimeDir string, commands warpRuntimeCommands) error {
 	routes := warp.RoutesForState(state)
 	interfaceName := state.Warp.RuntimeInterface()
 	if err := validateTunnelInterfaceName(interfaceName); err != nil {
 		return fmt.Errorf("invalid WARP interface name: %w", err)
 	}
 	if len(routes) == 0 {
-		_ = exec.Command("awg-quick", "down", interfaceName).Run()
+		if commands.interfaceExists(interfaceName) {
+			if err := commands.down(interfaceName); err != nil {
+				return fmt.Errorf("stop WARP runtime: %w", err)
+			}
+		}
 		return nil
 	}
 	if !state.Warp.Configured() {
@@ -285,21 +310,69 @@ func (s *Service) reconcileWarpRuntime(state config.State) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(runtimeConfigDir, 0700); err != nil {
+	if err := os.MkdirAll(runtimeDir, 0700); err != nil {
 		return err
 	}
-	runtimePath, err := runtimeConfigPath(interfaceName)
+	runtimePath := filepath.Join(runtimeDir, interfaceName+".conf")
+	// Prepare the complete replacement before stopping the working interface.
+	stagedPath, err := stageRuntimeConfig(runtimePath, []byte(conf))
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(runtimePath, []byte(conf), 0600); err != nil {
-		return err
+	defer func() { _ = os.Remove(stagedPath) }()
+
+	wasRunning := commands.interfaceExists(interfaceName)
+	if wasRunning {
+		if err := commands.down(interfaceName); err != nil {
+			return fmt.Errorf("stop WARP runtime: %w", err)
+		}
 	}
-	_ = exec.Command("awg-quick", "down", interfaceName).Run()
-	if err := runAWGQuick("up", interfaceName); err != nil {
-		return err
+	if err := os.Rename(stagedPath, runtimePath); err != nil {
+		var restoreErr error
+		if wasRunning {
+			if err := commands.up(interfaceName); err != nil {
+				restoreErr = fmt.Errorf("restore previous WARP runtime: %w", err)
+			}
+		}
+		return errors.Join(fmt.Errorf("replace WARP runtime config: %w", err), restoreErr)
+	}
+	if err := commands.up(interfaceName); err != nil {
+		return fmt.Errorf("start WARP runtime: %w", err)
 	}
 	return nil
+}
+
+func stageRuntimeConfig(path string, contents []byte) (string, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".warp-runtime-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	ok := false
+	closed := false
+	defer func() {
+		if !closed {
+			_ = tmp.Close()
+		}
+		if !ok {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0600); err != nil {
+		return "", err
+	}
+	if _, err := tmp.Write(contents); err != nil {
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	closed = true
+	ok = true
+	return tmpPath, nil
 }
 
 func warpRuntimeRequired(state config.State) bool {
