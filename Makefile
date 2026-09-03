@@ -5,7 +5,7 @@ GITLEAKS_LOG_OPTS ?= HEAD
 GOVULNCHECK_VERSION ?= v1.1.4
 ACTIONLINT_VERSION ?= v1.7.12
 
-.PHONY: test test-race test-shell vet build lint-go lint-js lint-shell lint-docker lint-actions lint-actions-security quality ui-build ui-check api-contract ci vuln-check security security-fast docker-smoke updates updates-local updates-docker update-amneziawg-refs docker-build docker-up docker-down
+.PHONY: test test-race test-shell vet build lint-go lint-js lint-shell lint-docker lint-actions lint-actions-security quality ui-build ui-check ui-test api-contract ci vuln-check security security-fast docker-smoke updates updates-local updates-docker update-amneziawg-refs docker-build docker-up docker-down
 
 test:
 	go test ./...
@@ -53,10 +53,13 @@ ui-check:
 ui-build:
 	npm run ui:build
 
+ui-test:
+	npm run ui:test
+
 api-contract:
 	go test ./internal/server -run '^Test(API(ErrorResponseContract|ContractRegenerateProtocolRejectsMalformedJSON)|Idempotency|OpenAPIContract)'
 
-ci: ui-check ui-build api-contract test test-shell vet build lint-go lint-js quality
+ci: ui-check ui-test api-contract test test-shell vet build lint-go lint-js quality
 
 vuln-check:
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...

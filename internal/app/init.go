@@ -83,7 +83,7 @@ func (s *Service) createInitialState(options InitOptions) (config.State, error) 
 	if err := s.store.Save(state); err != nil {
 		return config.State{}, err
 	}
-	return state, s.renderTunnelFromState(state, tunnel.ID, false, true)
+	return state, s.renderTunnelFromState(state, tunnel.ID, false)
 }
 
 func InitOptionsFromConfig(cfg config.Config) InitOptions {

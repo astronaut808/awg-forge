@@ -43,7 +43,7 @@ The installer asks for the protocol profile before tunnel defaults, so profile-s
 
 When creating more tunnels in the Web UI, automatic port selection uses a free port from the effective range. Ports below `1024` and common infrastructure ports are excluded from automatic selection. The selected port is stored normally in `state.json`; it is not rotated after creation. Manual selection remains available, and backend validation rejects conflicts.
 
-If you upgrade from an older awg-forge version and `.env` still contains `SERVER_HOST`, `LISTEN_PORT`, `IPV4_SUBNET`, `DNS`, `ALLOWED_IPS`, `PERSISTENT_KEEPALIVE`, `MTU`, or `PROTOCOL_PROFILE`, those values are ignored after `state.json` exists. Verify tunnel settings in the UI, then remove old tunnel variables from `.env` to avoid confusion.
+Existing tunnel settings are read from `state.json`, not overwritten by legacy tunnel variables in `.env`. However, `DNS`, `ALLOWED_IPS`, `PERSISTENT_KEEPALIVE`, and `MTU` still supply defaults for newly created tunnels. `PROTOCOL_PROFILE` supplies the default when a tunnel creation request omits the profile. New AWG 3.x tunnels use the `1280` fallback only when the configured MTU is `0`; an explicit legacy `MTU` value is preserved instead. Verify existing tunnel settings and the defaults needed for new tunnels before removing legacy variables. Recreate the container after editing `.env`.
 
 ## SESSION_SECRET
 
@@ -122,7 +122,9 @@ docker exec awg-forge awg-forge tls status
 docker exec awg-forge awg-forge doctor
 ```
 
-For domain mode, verify that the exact A/AAAA records resolve to this host. For IP mode, verify that the configured public IP is routed to this host. In both modes, verify that inbound TCP/80 reaches the host and that another service or proxy is not already using port `80`. After correction, the running service retries automatically at the time reported by `tls status` and Doctor.
+For domain mode, verify that the exact A/AAAA records resolve to this host. For IP mode, verify that the configured public IP is routed to this host. In both modes, verify that inbound TCP/80 reaches the host and that another service or proxy is not already using port `80`.
+
+ACME IP retries automatically at the time reported by `tls status` and Doctor. After a failed initial domain issuance, correct DNS/TCP/80 and retry an HTTPS request for the configured domain after the retry delay. Domain mode does not report a next-attempt timestamp.
 
 To restore SSH-only access instead, use the recovery procedure below. It also works when the main container is restarting and `docker exec` is unavailable.
 
@@ -258,11 +260,13 @@ MTU defaults are profile-specific:
 
 For the stable profiles, `Auto` delegates the server-side choice to the pinned `awg-quick`. It inspects the route or link MTU for configured peer endpoints, falls back to the default route and then `1500`, and subtracts `80`; a normal `1500` link therefore produces a `1420` tunnel interface. This is a local route/link heuristic, not end-to-end PMTU discovery. When the client config also omits MTU, the client chooses independently, so its effective value can differ from the server value.
 
-AWG 3.x uses an explicit `1280` only for a newly created tunnel whose configured default is `0`. This is an awg-forge interoperability fallback, not an AWG protocol requirement. `1280` is the IPv6 minimum link MTU and is also the current Amnezia client default on Android, iOS, and macOS Network Extension builds; current desktop builds still default to `1376`, while upstream PR #3065 proposes unifying the fallback at `1280`. awg-forge currently generates IPv4-only client routes, so the IPv6 minimum is a conservative engineering reference rather than a protocol guarantee. The lower value also leaves more encapsulation headroom for the experimental profile and avoids depending on the client's platform-specific fallback.
+AWG 3.x uses an explicit `1280` only for a newly created tunnel whose configured default is `0`. This is an awg-forge interoperability fallback, not an AWG protocol requirement. `1280` is the IPv6 minimum link MTU. awg-forge currently generates IPv4-only client routes, so the IPv6 minimum is a conservative engineering reference rather than a protocol guarantee. The lower value also leaves more encapsulation headroom for the experimental profile and avoids depending on the client's platform-specific fallback.
 
 This value is not a measured PMTU and cannot guarantee every nested VPN, PPPoE, overlay, or otherwise reduced-MTU path. Existing AWG 3.x tunnels with `MTU=0` are not migrated, and selecting `Auto` later remains an explicit operator choice.
 
 If you explicitly set tunnel MTU, it is rendered exactly the same into server and client configs. Existing tunnel values are not migrated or replaced.
+
+The client can still override an exported MTU during import. As checked on 2026-09-03, AmneziaVPN's [MTU preservation PR #3113](https://github.com/amnezia-vpn/amnezia-client/pull/3113) and [default MTU PR #3065](https://github.com/amnezia-vpn/amnezia-client/pull/3065) are open; this is not a released-client compatibility guarantee. Verify the effective MTU on both ends, especially when a handshake succeeds but large packets stall. Changing the server export alone cannot fix a client that overwrites it.
 
 WARP is separate from protocol-profile MTU selection and keeps its own `1280` default.
 
@@ -320,7 +324,7 @@ Client export supports downloaded `.conf`, the AmneziaWG QR containing that raw 
 
 Generated Header Protection settings follow the upstream compatibility rules. `RandomTrailers` and `DisableCookies` default to `off`; keep both disabled outside controlled testing. `DisableCookies` suppresses outgoing Cookie Reply messages and makes the pinned runtime bypass its receiving-side under-load cookie challenge and rate-limit path, materially reducing handshake-flood protection. Exact parameter rules, runtime constraints, known upstream issues, validation status, and source links are maintained in the [protocol matrix](protocol-matrix.md#awg-3x-experimental-boundaries).
 
-When an explicit tunnel MTU is configured, awg-forge preserves it in the server config, downloaded client `.conf`, structured AmneziaVPN QR, and raw-config `vpn://` export. New AWG 3.x tunnels use `1280` as a conservative fallback when no MTU is configured; explicit values and existing tunnel state are preserved. AmneziaVPN `5.0.2.0` prerelease can still replace an imported value with its platform default. The preservation fix is proposed in upstream PR #3113 but is not yet released, so verify the effective MTU on both ends when a handshake succeeds but large packets stall.
+Server config, downloaded `.conf`, structured AmneziaVPN QR, and raw-config `vpn://` use the same tunnel MTU. See [MTU](#mtu) for defaults and client-side import limitations.
 
 Manual end-to-end testing has confirmed `.conf` import, handshake, traffic, restart recovery, WAN egress, and WARP egress with compatible AmneziaVPN, AmneziaWG, and DefaultVPN clients. This does not guarantee compatibility with every platform, client build, network, or future 3.x runtime.
 

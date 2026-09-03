@@ -17,6 +17,7 @@ make vet
 make build
 make ui-check
 make ui-build
+make ui-test
 make api-contract
 make lint-go
 make lint-js
@@ -68,6 +69,14 @@ runtime tools AWG 3.x, которые входят в стандартный Doc
 
 ## Проверки перед коммитом
 
+После `npm ci` установи закреплённый браузер один раз; повтори установку после обновления Playwright:
+
+```bash
+npx --no-install playwright install chromium
+```
+
+На Linux добавь `--with-deps`, если не хватает системных библиотек браузера.
+
 ```bash
 make ci
 git diff --check
@@ -76,13 +85,14 @@ git diff --check
 `make ci` запускает:
 
 - `go test ./...`;
+- `make test-shell`, проверяющий сценарии установки, обновления, удаления и release-workflow;
 - `go vet ./...`;
 - `go build ./...`;
 - `golangci-lint run`;
 - `npm run ui:check`;
-- `npm run ui:build`;
+- `npm run ui:test`, который собирает встроенный UI и выполняет регрессионные тесты Chromium;
 - `make api-contract`, который разбирает исходный OpenAPI-документ и проверяет описанные core control-plane routes и envelope ошибок;
-- `deno lint web/src`;
+- `npm run ui:lint`, проверяющий исходники frontend и браузерные тесты;
 - `npm run quality:aislop`, который запускает `aislop ci` с проектным `.aislop/config.yml`.
 
 Для pull request отдельно запускаются jobs `Security`, `Race` и проверка Docker-образа. Security job выполняет `govulncheck`, Gitleaks, focused Semgrep и Trivy filesystem scans, ShellCheck, Hadolint, actionlint и offline pedantic-аудит zizmor. Docker job запускает собранный образ с отключённым runtime apply, выполняет вход в API, проверяет встроенные AmneziaWG binaries и parser сгенерированного конфига, перезапускает контейнер и убеждается, что конфигурация туннеля осталась доступной и корректно разбирается.
@@ -120,12 +130,16 @@ Generated frontend assets в `internal/server/static/assets/` и встроен�
 
 ## Frontend
 
+`make ui-test` проверяет вход и выход, сохранение языка и темы, формы клиентов и туннелей, ошибки внутри форм, обслуживание, экспорт и кэш QR для AWG 2.0/3.x. Chromium запускается с настольным и мобильным размером окна, светлой/тёмной темой и английским/русским UI. Тесты используют настоящие HTTP handlers и временные данные при `APPLY_CONFIG=false`; они не подтверждают передачу VPN-трафика или совместимость нативных мобильных клиентов.
+
+Runner запускает изолированные loopback-backend на портах `51924`–`51927` и удаляет их временные каталоги при штатном завершении. `UI_TEST_PORT` меняет первый порт диапазона. Существующие серверы не переиспользуются, настройки окружения рабочего развёртывания не передаются в backend. Traces, скриншоты и видео в CI отключены, поскольку экспорты содержат ключи; отчёты тестов исключены из Git и не загружаются как артефакты.
+
 Frontend source находится в `web/` и собирается через Vite + Preact + TypeScript.
 
 Generated output находится в `internal/server/static/` и встраивается в Go-бинарь через `embed.FS`. Эти файлы нужно обновлять командой:
 
 ```bash
-npm install
+npm ci
 npm run ui:build
 ```
 

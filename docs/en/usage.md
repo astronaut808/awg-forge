@@ -7,12 +7,14 @@ Main workflow:
 1. Open the UI through an SSH tunnel or a protected admin endpoint.
 2. Log in.
 3. Use the `RU` / `EN` button in the top bar to switch the panel language when needed. The choice is saved in the browser.
-4. Select profile tab `1.0`, `1.5`, `2.0`, or experimental `3.x`.
-5. Create a tunnel if needed.
+4. Select an existing tunnel, or click `Create tunnel` to add one.
+5. When creating a tunnel, select its protocol and settings in the dialog.
 6. Create a client inside the selected tunnel.
 7. Open `Config` for the client.
 8. Choose one of the import methods offered for that profile.
 9. Import the config into a compatible AmneziaWG or AmneziaVPN client.
+
+Dashboard profile filters appear only for profiles with existing tunnels; the creation dialog offers all available profiles.
 
 AWG 3.x offers the same four export choices: `.conf`, raw-config AmneziaWG QR, structured AmneziaVPN QR, and `vpn://`. Use AmneziaVPN 5.0.1.5 or newer for AWG 3.1, and keep `.conf` as the fallback when a client-specific import path fails.
 
@@ -20,7 +22,7 @@ AWG 3.x offers the same four export choices: `.conf`, raw-config AmneziaWG QR, s
 
 Tunnel actions:
 
-- `Create tunnel`: create a new tunnel inside the selected profile.
+- `Create tunnel`: choose a protocol in the dialog and create a new tunnel.
 - `Create client`: create a client inside a specific tunnel.
 - `Config`: choose between `.conf`, AmneziaWG QR, AmneziaVPN QR, and `vpn://` export.
 - `Edit`: rename a client or store admin-only notes without changing VPN config.
@@ -86,6 +88,8 @@ In `serve` mode, awg-forge periodically enforces expired clients and re-renders 
 
 ## CLI In Docker
 
+After restore, restart the container to reload all restored settings, including TLS and database state. With `APPLY_CONFIG=true`, startup applies enabled tunnels and reconciles WARP. Restarting only a tunnel is not enough. Wait for startup before running the remaining checks.
+
 ```bash
 docker exec awg-forge awg-forge doctor
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge backup /tmp/awg-forge.afbackup
@@ -93,7 +97,7 @@ docker cp awg-forge:/tmp/awg-forge.afbackup ./awg-forge-backup-YYYYMMDD-HHMMSS.a
 docker cp ./<backup-file>.afbackup awg-forge:/tmp/backup.afbackup
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge restore verify /tmp/backup.afbackup
 docker exec -e BACKUP_PASSWORD='long-random-backup-password' awg-forge awg-forge restore /tmp/backup.afbackup
-docker exec awg-forge awg-forge tunnel restart
+docker restart awg-forge
 docker exec awg-forge awg-forge firewall repair
 docker exec awg-forge awg-forge firewall check
 docker exec awg-forge awg-forge support-bundle
@@ -125,6 +129,8 @@ awg-forge support-bundle
 awg-forge updates
 awg-forge logs
 ```
+
+After a local restore, restart the running awg-forge process to reload restored settings.
 
 ## Client Config Import
 

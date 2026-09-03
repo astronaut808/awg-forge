@@ -544,7 +544,7 @@ function ModalContent({ modal, state, notify, close, reload, runAction }: {
   if (modal.kind === "create-client") return <CreateClientForm tunnel={modal.tunnel} trafficLimitsEnabled={state.database.enabled} runAction={runAction} />;
   if (modal.kind === "client-settings") return <ClientSettingsForm client={modal.client} runAction={runAction} />;
   if (modal.kind === "client-config") {
-    return <ClientConfigPanel client={modal.client} notify={notify} />;
+    return <ClientConfigPanel key={modal.client.id} client={modal.client} notify={notify} />;
   }
   if (modal.kind === "delete-tunnel") return <DeleteTunnelConfirmation tunnel={modal.tunnel} close={close} runAction={runAction} />;
   return <MaintenanceCenter state={state} notify={notify} close={close} reload={reload} />;
@@ -818,9 +818,6 @@ function ClientConfigPanel({ client, notify }: { client: Client; notify: (messag
   }, [notify]);
 
   useEffect(() => {
-    setQRImageURLs({});
-    setLoadingQRKeys({});
-    setFailedQRKeys({});
     return () => {
       for (const url of Object.values(qrImageURLsRef.current)) URL.revokeObjectURL(url);
       qrImageURLsRef.current = {};
@@ -1302,6 +1299,7 @@ function Dialog({ onClose, children }: { onClose: () => void; children: preact.C
     }
 
     return () => {
+      dialog?.close();
       const target = previousFocus.current;
       if (target instanceof HTMLElement) target.focus();
     };
