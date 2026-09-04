@@ -130,6 +130,188 @@ func TestNonRoutingTunnelSettingsDoNotReconcileWarp(t *testing.T) {
 	}
 }
 
+func TestMTUChangeRestartsTunnelRuntime(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		mtu  int
+	}{
+		{name: "explicit", mtu: 1280},
+		{name: "auto", mtu: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			svc, state := runtimeTransactionService(t)
+			recorder := runtimeRecorder{}
+			svc.runtimeOps = recorder.operations()
+
+			tunnel := state.Tunnels[0]
+			update := tunnelSettingsUpdate(tunnel, true)
+			update.MTU = test.mtu
+			updated, err := svc.UpdateTunnelSettings(tunnel.ID, update)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if updated.MTU != test.mtu {
+				t.Fatalf("MTU = %d, want %d", updated.MTU, test.mtu)
+			}
+			if len(recorder.removed) != 1 || recorder.removed[0] != tunnel.ID {
+				t.Fatalf("removed tunnels = %v, want [%s]", recorder.removed, tunnel.ID)
+			}
+			if len(recorder.applied) != 1 || recorder.applied[0] != tunnel.ID {
+				t.Fatalf("applied tunnels = %v, want [%s]", recorder.applied, tunnel.ID)
+			}
+		})
+	}
+}
+
+func TestSubnetChangeRestartsTunnelRuntime(t *testing.T) {
+	installEmptyIPTables(t)
+	svc, state := runtimeTransactionService(t)
+	recorder := runtimeRecorder{}
+	svc.runtimeOps = recorder.operations()
+
+	tunnel := state.Tunnels[0]
+	update := tunnelSettingsUpdate(tunnel, true)
+	update.Subnet = "10.29.0.0/24"
+	updated, err := svc.UpdateTunnelSettings(tunnel.ID, update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.IPv4Subnet != "10.29.0.0/24" || updated.ServerAddress != "10.29.0.1" {
+		t.Fatalf("updated addressing = %s, %s", updated.IPv4Subnet, updated.ServerAddress)
+	}
+	if len(recorder.removed) != 1 || len(recorder.applied) != 1 {
+		t.Fatalf("runtime calls: remove=%d apply=%d, want 1/1", len(recorder.removed), len(recorder.applied))
+	}
+	if len(recorder.routeCounts) != 1 || recorder.routeCounts[0] != 1 {
+		t.Fatalf("WARP route counts = %v, want [1]", recorder.routeCounts)
+	}
+}
+
+func TestSubnetChangeWithClientsRemainsRejected(t *testing.T) {
+	svc, state := runtimeTransactionService(t)
+	recorder := runtimeRecorder{}
+	svc.runtimeOps = recorder.operations()
+	state.Tunnels[0].Clients = []config.Client{{ID: "client-1"}}
+	if err := svc.store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+
+	tunnel := state.Tunnels[0]
+	update := tunnelSettingsUpdate(tunnel, true)
+	update.Subnet = "10.29.0.0/24"
+	if _, err := svc.UpdateTunnelSettings(tunnel.ID, update); err == nil {
+		t.Fatal("expected subnet change with existing clients to fail")
+	}
+	if len(recorder.removed) != 0 || len(recorder.applied) != 0 {
+		t.Fatalf("runtime calls after rejected update: remove=%d apply=%d, want 0/0", len(recorder.removed), len(recorder.applied))
+	}
+}
+
+func TestInterfaceRenameRestartsTunnelRuntime(t *testing.T) {
+	installEmptyIPTables(t)
+	svc, state := runtimeTransactionService(t)
+	recorder := runtimeRecorder{}
+	svc.runtimeOps = recorder.operations()
+
+	tunnel := state.Tunnels[0]
+	update := tunnelSettingsUpdate(tunnel, true)
+	update.Name = "awg-renamed"
+	updated, err := svc.UpdateTunnelSettings(tunnel.ID, update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.InterfaceName != "awg-renamed" {
+		t.Fatalf("interface name = %q, want awg-renamed", updated.InterfaceName)
+	}
+	if len(recorder.removed) != 1 || len(recorder.applied) != 1 {
+		t.Fatalf("runtime calls: remove=%d apply=%d, want 1/1", len(recorder.removed), len(recorder.applied))
+	}
+}
+
+func installEmptyIPTables(t *testing.T) {
+	t.Helper()
+	binDir := t.TempDir()
+	script := "#!/bin/sh\ncase \" $* \" in\n  *\" -C \"*) exit 1 ;;\n  *) exit 0 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(binDir, "iptables"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+}
+
+func TestMTURestartRemovalFailureRollsBackStateAndRuntime(t *testing.T) {
+	svc, state := runtimeTransactionService(t)
+	recorder := runtimeRecorder{failRemoveCall: 1}
+	svc.runtimeOps = recorder.operations()
+
+	tunnel := state.Tunnels[0]
+	update := tunnelSettingsUpdate(tunnel, true)
+	update.MTU = 1280
+	if _, err := svc.UpdateTunnelSettings(tunnel.ID, update); err == nil {
+		t.Fatal("expected runtime removal failure")
+	}
+
+	current, err := svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Tunnels[0].MTU != tunnel.MTU {
+		t.Fatalf("MTU after rollback = %d, want %d", current.Tunnels[0].MTU, tunnel.MTU)
+	}
+	if len(recorder.removed) != 2 || len(recorder.applied) != 1 {
+		t.Fatalf("runtime rollback calls: remove=%d apply=%d, want 2/1", len(recorder.removed), len(recorder.applied))
+	}
+}
+
+func TestMTURestartApplyFailureRollsBackStateAndRuntime(t *testing.T) {
+	svc, state := runtimeTransactionService(t)
+	recorder := runtimeRecorder{failApplyCall: 1}
+	svc.runtimeOps = recorder.operations()
+
+	tunnel := state.Tunnels[0]
+	update := tunnelSettingsUpdate(tunnel, true)
+	update.MTU = 1280
+	if _, err := svc.UpdateTunnelSettings(tunnel.ID, update); err == nil {
+		t.Fatal("expected runtime apply failure")
+	}
+
+	current, err := svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Tunnels[0].MTU != tunnel.MTU {
+		t.Fatalf("MTU after rollback = %d, want %d", current.Tunnels[0].MTU, tunnel.MTU)
+	}
+	if len(recorder.removed) != 2 || len(recorder.applied) != 2 {
+		t.Fatalf("runtime rollback calls: remove=%d apply=%d, want 2/2", len(recorder.removed), len(recorder.applied))
+	}
+}
+
+func TestRestartTunnelRecreatesRuntime(t *testing.T) {
+	svc, state := runtimeTransactionService(t)
+	recorder := runtimeRecorder{}
+	svc.runtimeOps = recorder.operations()
+
+	if err := svc.RestartTunnelByID(state.Tunnels[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.removed) != 1 || len(recorder.applied) != 1 {
+		t.Fatalf("runtime restart calls: remove=%d apply=%d, want 1/1", len(recorder.removed), len(recorder.applied))
+	}
+}
+
+func TestRestartTunnelRemovalFailureAttemptsRestore(t *testing.T) {
+	svc, state := runtimeTransactionService(t)
+	recorder := runtimeRecorder{failRemoveCall: 1}
+	svc.runtimeOps = recorder.operations()
+
+	if err := svc.RestartTunnelByID(state.Tunnels[0].ID); err == nil {
+		t.Fatal("expected runtime removal failure")
+	}
+	if len(recorder.removed) != 1 || len(recorder.applied) != 1 {
+		t.Fatalf("runtime recovery calls: remove=%d apply=%d, want 1/1", len(recorder.removed), len(recorder.applied))
+	}
+}
+
 func TestDisableAndEnableWarpTunnelUpdatesBothRuntimes(t *testing.T) {
 	svc, state := runtimeTransactionService(t)
 	recorder := runtimeRecorder{}
@@ -277,20 +459,28 @@ func tunnelSettingsUpdate(tunnel config.Tunnel, enabled bool) TunnelSettingsUpda
 }
 
 type runtimeRecorder struct {
-	applied      []string
-	removed      []string
-	routeCounts  []int
-	failWarpCall int
+	applied        []string
+	removed        []string
+	routeCounts    []int
+	failApplyCall  int
+	failRemoveCall int
+	failWarpCall   int
 }
 
 func (r *runtimeRecorder) operations() runtimeOperations {
 	return runtimeOperations{
 		applyTunnel: func(tunnel config.Tunnel) error {
 			r.applied = append(r.applied, tunnel.ID)
+			if r.failApplyCall > 0 && len(r.applied) == r.failApplyCall {
+				return errors.New("forced tunnel apply failure")
+			}
 			return nil
 		},
 		removeTunnel: func(tunnel config.Tunnel) error {
 			r.removed = append(r.removed, tunnel.ID)
+			if r.failRemoveCall > 0 && len(r.removed) == r.failRemoveCall {
+				return errors.New("forced tunnel removal failure")
+			}
 			return nil
 		},
 		reconcileWarp: func(state config.State) error {

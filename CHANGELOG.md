@@ -22,6 +22,9 @@
 
 ### Fixed
 
+- Recreate an enabled tunnel when its interface name, IPv4 subnet, or MTU changes so Linux link settings match persisted state, with runtime rollback when stopping or applying the replacement fails.
+- Align the OpenAPI client-expiration schema with the existing API by accepting either an empty value or an RFC 3339 timestamp, and validate both forms in the contract gate.
+- Correct the protocol matrix to distinguish active AWG 3.x client `I1-I5` settings from the comments retained in server configurations.
 - Stop the existing WARP runtime with its previous configuration before atomically replacing it, so removing or changing a WARP-routed tunnel also removes the corresponding policy rule and route.
 - Restore keyboard focus to the opening control after closing a modal dialog.
 - Avoid cancelling and repeating the initial client QR request when opening the Config dialog; keep export state and the temporary QR cache isolated per client.

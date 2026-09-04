@@ -57,6 +57,7 @@ ui-test:
 	npm run ui:test
 
 api-contract:
+	npm run api:contract
 	go test ./internal/server -run '^Test(API(ErrorResponseContract|ContractRegenerateProtocolRejectsMalformedJSON)|Idempotency|OpenAPIContract)'
 
 ci: ui-check ui-test api-contract test test-shell vet build lint-go lint-js quality
