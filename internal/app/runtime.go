@@ -49,9 +49,18 @@ func (s *Service) RestartTunnelByID(tunnelID string) error {
 		s.log("warn", "tunnel.restart.skipped", "runtime tunnel restart skipped because APPLY_CONFIG=false", tunnelAuditFields(state.Tunnels[idx]), nil)
 		return nil
 	}
-	_ = exec.Command("awg-quick", "down", state.Tunnels[idx].InterfaceName).Run()
+	tunnel := state.Tunnels[idx]
+	if err := s.runtimeOps.removeTunnel(tunnel); err != nil {
+		restoreErr := s.renderTunnelLocked(tunnelID, true)
+		restartErr := &ApplyError{Err: fmt.Errorf("remove tunnel runtime before restart: %w", err)}
+		if restoreErr != nil {
+			restartErr.Err = errors.Join(restartErr.Err, fmt.Errorf("restore tunnel runtime: %w", restoreErr))
+		}
+		s.log("error", "tunnel.restart.failed", "runtime tunnel restart failed", tunnelAuditFields(tunnel), restartErr)
+		return restartErr
+	}
 	if err := s.renderTunnelLocked(tunnelID, true); err != nil {
-		s.log("error", "tunnel.restart.failed", "runtime tunnel restart failed", tunnelAuditFields(state.Tunnels[idx]), err)
+		s.log("error", "tunnel.restart.failed", "runtime tunnel restart failed", tunnelAuditFields(tunnel), err)
 		return err
 	}
 	state, err = s.store.Load()

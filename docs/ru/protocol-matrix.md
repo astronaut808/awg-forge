@@ -61,7 +61,7 @@ AWG3 принудительно запускается через закрепл
 | `S1/S2` | server и client interface | server и client interface | server и client interface | server и client interface |
 | `S3/S4` | не рендерится | не рендерится | server и client interface | server и client interface |
 | `H1-H4` | single values | single values | ranges by default | server и client interface |
-| `I1-I5` | не рендерится | client interface only | server и client interface | server и client interface; `I1` создаётся общим QUIC Initial-like генератором |
+| `I1-I5` | не рендерится | только client interface | server и client interface | client interface; в server config сохраняются только комментарии, а `I1` создаётся общим QUIC Initial-like генератором |
 | `HeaderProtectionKey` | не рендерится | не рендерится | не рендерится | server и client interface; генерируется один раз для туннеля |
 | AWG 3.x timing ranges | не рендерятся | не рендерятся | не рендерятся | server и client interface |
 | `RandomTrailers/DisableCookies` | не рендерятся | не рендерятся | не рендерятся | явное состояние в server runtime config; в client export только включённые значения |

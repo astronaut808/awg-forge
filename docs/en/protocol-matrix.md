@@ -63,7 +63,7 @@ Official 2.0 parameter ranges:
 | `S1/S2` | Client and server interface | Client and server interface | Client and server interface | Client and server interface |
 | `S3/S4` | Not rendered | Not rendered | Client and server interface | Client and server interface |
 | `H1-H4` | Single values | Single values | Ranges by default, single values allowed only for explicit custom params | Client and server interface |
-| `I1-I5` | Not rendered by awg-forge Legacy profile | Client interface only in current 1.5-oriented profile | Client and server interface | Client and server interface; generated `I1` uses the shared QUIC Initial-like mechanism |
+| `I1-I5` | Not rendered by awg-forge Legacy profile | Client interface only in current 1.5-oriented profile | Client and server interface | Client interface; retained only as comments in the server config, and generated `I1` uses the shared QUIC Initial-like mechanism |
 | `HeaderProtectionKey` | Not rendered | Not rendered | Not rendered | Client and server interface; generated once per tunnel |
 | AWG 3.x timing ranges | Not rendered | Not rendered | Not rendered | Client and server interface |
 | `RandomTrailers/DisableCookies` | Not rendered | Not rendered | Not rendered | Explicit state in server runtime config; enabled values only in client exports |

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -394,15 +393,16 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 		return config.Tunnel{}, err
 	}
 	state.Tunnels[idx] = applyTunnelSettings(old, settings)
+	next := state.Tunnels[idx]
 	warpRoutesNeedReconcile := warpRoutesChanged(previousState, state)
-	state.UpdatedAt = state.Tunnels[idx].UpdatedAt
+	state.UpdatedAt = next.UpdatedAt
 	if err := s.store.Save(state); err != nil {
 		return config.Tunnel{}, err
 	}
-	if s.cfg.ApplyConfig && firewallRelevantChanged(old, state.Tunnels[idx]) {
-		if old.InterfaceName != settings.Name {
-			_ = exec.Command("awg-quick", "down", old.InterfaceName).Run()
-		}
+	restartRuntime := old.Enabled && next.Enabled && tunnelRuntimeRestartRequired(old, next)
+	disableRuntime := old.Enabled && !next.Enabled
+	firewallChanged := firewallRelevantChanged(old, next)
+	if s.cfg.ApplyConfig && firewallChanged {
 		oldRuntimePath, err := runtimeConfigPath(old.InterfaceName)
 		if err != nil {
 			return config.Tunnel{}, err
@@ -418,6 +418,20 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 			s.log("error", "tunnel.settings.failed", "legacy firewall migration failed during tunnel settings update", tunnelAuditFields(old), err)
 			return config.Tunnel{}, err
 		}
+	}
+	if s.cfg.ApplyConfig && (restartRuntime || disableRuntime) {
+		if err := s.runtimeOps.removeTunnel(old); err != nil {
+			deleteRendered := []string{}
+			if old.InterfaceName != settings.Name {
+				deleteRendered = append(deleteRendered, settings.Name)
+			}
+			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, deleteRendered...); rollbackErr != nil {
+				return config.Tunnel{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
+			s.log("error", "tunnel.settings.failed", "tunnel runtime removal failed during tunnel settings update", tunnelAuditFields(old), err)
+			return config.Tunnel{}, &ApplyError{Err: err}
+		}
+	} else if s.cfg.ApplyConfig && firewallChanged {
 		if err := s.cleanupFirewallRules(old); err != nil {
 			deleteRendered := []string{}
 			if old.InterfaceName != settings.Name {
@@ -428,15 +442,6 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 			}
 			s.log("error", "tunnel.settings.failed", "tunnel settings firewall cleanup failed", tunnelAuditFields(old), err)
 			return config.Tunnel{}, err
-		}
-	}
-	if s.cfg.ApplyConfig && old.Enabled && !state.Tunnels[idx].Enabled {
-		if err := s.runtimeOps.removeTunnel(old); err != nil {
-			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID); rollbackErr != nil {
-				return config.Tunnel{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
-			}
-			s.log("error", "tunnel.settings.failed", "tunnel runtime removal failed while disabling tunnel", tunnelAuditFields(old), err)
-			return config.Tunnel{}, &ApplyError{Err: err}
 		}
 	}
 	if old.InterfaceName != settings.Name {
@@ -812,4 +817,11 @@ func firewallRelevantChanged(old, next config.Tunnel) bool {
 		old.IPv4Subnet != next.IPv4Subnet ||
 		old.InterfaceName != next.InterfaceName ||
 		old.EgressMode != next.EgressMode
+}
+
+func tunnelRuntimeRestartRequired(old, next config.Tunnel) bool {
+	return old.InterfaceName != next.InterfaceName ||
+		old.ServerAddress != next.ServerAddress ||
+		old.IPv4Subnet != next.IPv4Subnet ||
+		old.MTU != next.MTU
 }
