@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -48,9 +49,18 @@ func (s *Service) RestartTunnelByID(tunnelID string) error {
 		s.log("warn", "tunnel.restart.skipped", "runtime tunnel restart skipped because APPLY_CONFIG=false", tunnelAuditFields(state.Tunnels[idx]), nil)
 		return nil
 	}
-	_ = exec.Command("awg-quick", "down", state.Tunnels[idx].InterfaceName).Run()
+	tunnel := state.Tunnels[idx]
+	if err := s.runtimeOps.removeTunnel(tunnel); err != nil {
+		restoreErr := s.renderTunnelLocked(tunnelID, true)
+		restartErr := &ApplyError{Err: fmt.Errorf("remove tunnel runtime before restart: %w", err)}
+		if restoreErr != nil {
+			restartErr.Err = errors.Join(restartErr.Err, fmt.Errorf("restore tunnel runtime: %w", restoreErr))
+		}
+		s.log("error", "tunnel.restart.failed", "runtime tunnel restart failed", tunnelAuditFields(tunnel), restartErr)
+		return restartErr
+	}
 	if err := s.renderTunnelLocked(tunnelID, true); err != nil {
-		s.log("error", "tunnel.restart.failed", "runtime tunnel restart failed", tunnelAuditFields(state.Tunnels[idx]), err)
+		s.log("error", "tunnel.restart.failed", "runtime tunnel restart failed", tunnelAuditFields(tunnel), err)
 		return err
 	}
 	state, err = s.store.Load()
@@ -231,7 +241,7 @@ func (s *Service) apply(tunnel config.Tunnel) error {
 		return err
 	}
 	if err := exec.Command("ip", "link", "show", tunnel.InterfaceName).Run(); err != nil {
-		if err := runAWGQuick("up", tunnel.InterfaceName); err != nil {
+		if err := runAWGQuickForTunnel(tunnel, "up", tunnel.InterfaceName); err != nil {
 			return err
 		}
 		return s.ensureFirewallRules(tunnel)
@@ -248,14 +258,58 @@ func (s *Service) apply(tunnel config.Tunnel) error {
 	return s.ensureFirewallRules(tunnel)
 }
 
+func (s *Service) removeTunnelRuntime(tunnel config.Tunnel) error {
+	var removeErrors []error
+	if exec.Command("ip", "link", "show", tunnel.InterfaceName).Run() == nil {
+		if err := runAWGQuickForTunnel(tunnel, "down", tunnel.InterfaceName); err != nil {
+			removeErrors = append(removeErrors, err)
+		}
+	}
+	if err := s.cleanupFirewallRules(tunnel); err != nil {
+		removeErrors = append(removeErrors, err)
+	}
+	runtimePath, err := runtimeConfigPath(tunnel.InterfaceName)
+	if err != nil {
+		removeErrors = append(removeErrors, err)
+	} else if err := os.Remove(runtimePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		removeErrors = append(removeErrors, fmt.Errorf("remove runtime config: %w", err))
+	}
+	return errors.Join(removeErrors...)
+}
+
 func (s *Service) reconcileWarpRuntime(state config.State) error {
+	commands := warpRuntimeCommands{
+		interfaceExists: func(interfaceName string) bool {
+			return exec.Command("ip", "link", "show", interfaceName).Run() == nil
+		},
+		down: func(interfaceName string) error {
+			return runAWGQuick("down", interfaceName)
+		},
+		up: func(interfaceName string) error {
+			return runAWGQuick("up", interfaceName)
+		},
+	}
+	return reconcileWarpRuntime(state, runtimeConfigDir, commands)
+}
+
+type warpRuntimeCommands struct {
+	interfaceExists func(string) bool
+	down            func(string) error
+	up              func(string) error
+}
+
+func reconcileWarpRuntime(state config.State, runtimeDir string, commands warpRuntimeCommands) error {
 	routes := warp.RoutesForState(state)
 	interfaceName := state.Warp.RuntimeInterface()
 	if err := validateTunnelInterfaceName(interfaceName); err != nil {
 		return fmt.Errorf("invalid WARP interface name: %w", err)
 	}
 	if len(routes) == 0 {
-		_ = exec.Command("awg-quick", "down", interfaceName).Run()
+		if commands.interfaceExists(interfaceName) {
+			if err := commands.down(interfaceName); err != nil {
+				return fmt.Errorf("stop WARP runtime: %w", err)
+			}
+		}
 		return nil
 	}
 	if !state.Warp.Configured() {
@@ -265,21 +319,110 @@ func (s *Service) reconcileWarpRuntime(state config.State) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(runtimeConfigDir, 0700); err != nil {
+	if err := os.MkdirAll(runtimeDir, 0700); err != nil {
 		return err
 	}
-	runtimePath, err := runtimeConfigPath(interfaceName)
+	runtimePath := filepath.Join(runtimeDir, interfaceName+".conf")
+	// Prepare the complete replacement before stopping the working interface.
+	stagedPath, err := stageRuntimeConfig(runtimePath, []byte(conf))
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(runtimePath, []byte(conf), 0600); err != nil {
-		return err
+	defer func() { _ = os.Remove(stagedPath) }()
+
+	wasRunning := commands.interfaceExists(interfaceName)
+	if wasRunning {
+		if err := commands.down(interfaceName); err != nil {
+			return fmt.Errorf("stop WARP runtime: %w", err)
+		}
 	}
-	_ = exec.Command("awg-quick", "down", interfaceName).Run()
-	if err := runAWGQuick("up", interfaceName); err != nil {
-		return err
+	if err := os.Rename(stagedPath, runtimePath); err != nil {
+		var restoreErr error
+		if wasRunning {
+			if err := commands.up(interfaceName); err != nil {
+				restoreErr = fmt.Errorf("restore previous WARP runtime: %w", err)
+			}
+		}
+		return errors.Join(fmt.Errorf("replace WARP runtime config: %w", err), restoreErr)
+	}
+	if err := commands.up(interfaceName); err != nil {
+		return fmt.Errorf("start WARP runtime: %w", err)
 	}
 	return nil
+}
+
+func stageRuntimeConfig(path string, contents []byte) (string, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".warp-runtime-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	ok := false
+	closed := false
+	defer func() {
+		if !closed {
+			_ = tmp.Close()
+		}
+		if !ok {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0600); err != nil {
+		return "", err
+	}
+	if _, err := tmp.Write(contents); err != nil {
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	closed = true
+	ok = true
+	return tmpPath, nil
+}
+
+func warpRuntimeRequired(state config.State) bool {
+	return state.Warp.Configured() || len(warp.RoutesForState(state)) > 0
+}
+
+func warpRoutesChanged(previous, current config.State) bool {
+	return !slices.Equal(warp.RoutesForState(previous), warp.RoutesForState(current))
+}
+
+func (s *Service) reconcileWarpRuntimePersisted() error {
+	state, err := s.store.Load()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	applyErr := s.reconcileWarpRuntimeStatus(&state, now)
+	if saveErr := s.store.Save(state); saveErr != nil {
+		if applyErr != nil {
+			return errors.Join(applyErr, fmt.Errorf("save WARP apply status: %w", saveErr))
+		}
+		return saveErr
+	}
+	return applyErr
+}
+
+func (s *Service) reconcileWarpRuntimeStatus(state *config.State, now time.Time) error {
+	err := s.runtimeOps.reconcileWarp(*state)
+	recordWarpApplyResult(state, now, err)
+	return err
+}
+
+func recordWarpApplyResult(state *config.State, now time.Time, err error) {
+	state.Warp.UpdatedAt = now
+	state.UpdatedAt = now
+	if err != nil {
+		state.Warp.LastApplyError = err.Error()
+		return
+	}
+	state.Warp.LastApplyAt = now
+	state.Warp.LastApplyError = ""
 }
 
 func (s *Service) ensureFirewallRules(tunnel config.Tunnel) error {
@@ -509,11 +652,49 @@ func byteDelta(before, after uint64) uint64 {
 }
 
 func runAWGQuick(args ...string) error {
-	err := exec.Command("awg-quick", args...).Run()
+	return runAWGQuickWithEnv(nil, args...)
+}
+
+func runAWGQuickForTunnel(tunnel config.Tunnel, args ...string) error {
+	if !isAWG3Profile(tunnel.ProtocolProfileID) {
+		return runAWGQuick(args...)
+	}
+	return runAWGQuickWithEnv([]string{"AWG_QUICK_FORCE_USERSPACE=1"}, args...)
+}
+
+func runAWGQuickWithEnv(extraEnv []string, args ...string) error {
+	cmd := exec.Command("awg-quick", args...)
+	if len(extraEnv) > 0 {
+		cmd.Env = mergedEnv(os.Environ(), extraEnv)
+	}
+	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("awg-quick %s failed: %w", strings.Join(args, " "), err)
 	}
 	return nil
+}
+
+func mergedEnv(base, overrides []string) []string {
+	result := append([]string(nil), base...)
+	for _, override := range overrides {
+		key, _, ok := strings.Cut(override, "=")
+		if !ok {
+			continue
+		}
+		prefix := key + "="
+		replaced := false
+		for idx, value := range result {
+			if strings.HasPrefix(value, prefix) {
+				result[idx] = override
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			result = append(result, override)
+		}
+	}
+	return result
 }
 
 func runtimeConfigHasLegacyFirewallRules(path string, tunnel config.Tunnel) (bool, error) {

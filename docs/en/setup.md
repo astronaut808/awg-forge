@@ -30,7 +30,7 @@ docker compose run --rm --no-deps awg-forge db migrate
 docker compose up -d
 ```
 
-Replace the example host, interface, port, and subnet before running `init`. This creates the first persistent tunnel in `data/state.json`; changing legacy tunnel variables in `.env` afterwards does not update it.
+Replace the example host, interface, port, and subnet before running `init`. Also set `EXTERNAL_INTERFACE` in `.env` to the host's WAN interface, matching `--external-interface`; the running service uses `.env` for this setting. The command creates the first persistent tunnel in `data/state.json`; changing legacy tunnel variables in `.env` afterwards does not update it.
 
 By default the Web UI listens on `127.0.0.1:51821`. Access it through an SSH tunnel:
 

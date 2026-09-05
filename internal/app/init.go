@@ -53,6 +53,9 @@ func (s *Service) createInitialState(options InitOptions) (config.State, error) 
 	if err != nil {
 		return config.State{}, err
 	}
+	if !s.profileAvailable(spec.ProfileID) {
+		return config.State{}, fmt.Errorf("unsupported protocol profile %q", spec.ProfileID)
+	}
 	now := time.Now().UTC()
 	secret, err := s.sessionSecretValue()
 	if err != nil {
@@ -66,7 +69,7 @@ func (s *Service) createInitialState(options InitOptions) (config.State, error) 
 	tunnel.DNS = options.DNS
 	tunnel.AllowedIPs = options.AllowedIPs
 	tunnel.Keepalive = options.PersistentKeepalive
-	tunnel.MTU = options.MTU
+	tunnel.MTU = initialTunnelMTU(spec.ProfileID, options.MTU)
 	state := config.State{
 		SchemaVersion:     config.CurrentStateSchemaVersion,
 		SessionSecret:     secret,
@@ -267,6 +270,9 @@ func (s *Service) repairProtocolParams(tunnel *config.Tunnel) (bool, error) {
 	p, ok := protocol.ByID(tunnel.ProtocolProfileID)
 	if !ok {
 		return false, fmt.Errorf("unsupported protocol profile %q", tunnel.ProtocolProfileID)
+	}
+	if err := protocol.ValidateSecrets(p, tunnel.ProtocolSecrets); err != nil {
+		return false, fmt.Errorf("invalid protocol secrets for %q: %w", tunnel.ProtocolProfileID, err)
 	}
 	if err := p.Validate(tunnel.ProtocolParams); err == nil {
 		return false, nil

@@ -15,6 +15,7 @@ var (
 	AmneziaWGGoRepo     = DefaultAmneziaWGGoRepo
 	AmneziaWGToolsRepo  = DefaultAmneziaWGToolsRepo
 	AmneziaWGUpdateMode = "manual"
+	AWG3Runtime         = "false"
 )
 
 type Info struct {
@@ -25,6 +26,10 @@ type Info struct {
 	AmneziaWGGoRepo     string `json:"amneziawg_go_repo"`
 	AmneziaWGToolsRepo  string `json:"amneziawg_tools_repo"`
 	AmneziaWGUpdateMode string `json:"amneziawg_update_mode"`
+}
+
+func AWG3RuntimeEnabled() bool {
+	return AWG3Runtime == "true"
 }
 
 func Current() Info {

@@ -12,16 +12,18 @@ Self-hosted панель управления AmneziaWG для Docker: Go backen
 - Безопасный дефолт для панели: Web UI слушает `127.0.0.1`, а не публичный интерфейс сервера.
 - Несколько независимых туннелей на одном VPS: разные профили, UDP-порты и egress-сценарии без ручного редактирования Docker port mappings.
 - Гибкий IPv4 egress: туннель может выходить напрямую через сервер или через Cloudflare WARP.
+- Несколько поколений AmneziaWG: стабильные профили до 2.0 и встроенный экспериментальный профиль AWG 3.x без изменения production-дефолта.
 - Управление и обслуживание в одном месте: повседневные действия через Web UI, диагностика и автоматизация через CLI.
 
 ## Что поддерживается
 
-- Профили AmneziaWG: Legacy / 1.0, 1.5-oriented profile и 2.0.
+- Стабильные профили AmneziaWG: Legacy / 1.0, 1.5-oriented profile и 2.0. Новые установки по умолчанию используют 2.0.
+- AWG 3.x входит в стандартный образ как экспериментальный профиль с явным предупреждением в UI. Его включение и использование выполняются на свой риск; для production по умолчанию используется AmneziaWG 2.0. Доступны `.conf`, QR для AmneziaWG, структурированный QR для AmneziaVPN 5.0.1.5+ и `vpn://`; стабильным резервным способом остается `.conf`.
 - Туннели: отдельные профили, UDP-порты, подсети, endpoint-настройки и IPv4 egress.
 - IPv6 egress пока не поддерживается; клиентские конфиги намеренно используют `AllowedIPs = 0.0.0.0/0` без `::/0`.
 - Egress: `Server WAN` или Cloudflare WARP на уровне отдельного туннеля.
 - TLS Web UI: loopback HTTP, reverse proxy, manual certificates или управляемый ACME для одного публичного домена либо короткоживущего сертификата публичного IP.
-- Клиенты: создание, скачивание `.conf`, AmneziaWG QR, AmneziaVPN QR, `vpn://` ключ, enable/disable, expiration, delete.
+- Клиенты: создание, enable/disable, expiration, delete и зависящие от профиля способы импорта через `.conf`, AmneziaWG QR, AmneziaVPN QR или `vpn://`.
 - Диагностика: Doctor, firewall repair, client status, last seen, received/sent counters.
 - Maintenance Center: Doctor с контекстным firewall repair, WARP, проверкой backup/restore, трафиком, audit log и support diagnostics.
 
@@ -77,7 +79,7 @@ docker compose run --rm --no-deps awg-forge db migrate
 docker compose up -d
 ```
 
-Перед `init` замени пример host, интерфейса, порта и подсети. Команда создаёт первый постоянный туннель в `data/state.json`; изменение legacy tunnel-переменных в `.env` после этого его не обновит.
+Перед `init` замени пример host, интерфейса, порта и подсети. Также задай WAN-интерфейс хоста в `EXTERNAL_INTERFACE` файла `.env`, согласовав его с `--external-interface`: работающий сервис берет эту настройку из `.env`. Команда создаёт первый постоянный туннель в `data/state.json`; изменение legacy tunnel-переменных в `.env` после этого его не обновит.
 
 Рекомендуемый production-режим — Docker host networking. Так туннели, созданные в UI, могут использовать разные UDP-порты без изменения Docker port mappings.
 
@@ -98,7 +100,7 @@ WARP можно выбрать при создании туннеля или в�
 ## Проверка после запуска
 
 1. Создай клиента в UI.
-2. Открой `Config` у клиента и импортируй через AmneziaVPN QR или скачанный `.conf`.
+2. Открой `Config` у клиента и используй один из предложенных способов импорта. Для AWG 3.x используй AmneziaVPN 5.0.1.5+; если QR или `vpn://` не поддерживается конкретной платформой, импортируй `.conf`.
 3. Проверь IPv4 egress:
 
 ```bash
@@ -141,6 +143,8 @@ Backup/restore, firewall repair, support bundle и audit log доступны в
 - [Обновления AmneziaWG](docs/ru/updates.md)
 - [Разработка](docs/ru/development.md)
 - [Безопасность](docs/ru/security.md)
+- [Контракт API панели управления](docs/ru/api.md)
+- [Матрица профилей и совместимости](docs/ru/protocol-matrix.md)
 - [Changelog](CHANGELOG.md)
 
 ## Разработка

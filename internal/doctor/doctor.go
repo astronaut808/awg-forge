@@ -148,6 +148,9 @@ func (c *checker) checkWarp(cfg config.Config, state config.State) {
 		c.fail(categoryWarp, "warp", fmt.Sprintf("%d enabled tunnel(s) require WARP, but WARP config is not imported", warpTunnels))
 		return
 	}
+	if state.Warp.LastApplyError != "" {
+		c.fail(categoryWarp, "warp runtime", "last apply error: "+state.Warp.LastApplyError)
+	}
 	interfaceName := state.Warp.RuntimeInterface()
 	if cfg.ApplyConfig {
 		if err := exec.Command("ip", "link", "show", interfaceName).Run(); err != nil {

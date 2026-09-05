@@ -35,6 +35,7 @@ import (
 
 	"github.com/astronaut808/awg-forge/internal/app"
 	"github.com/astronaut808/awg-forge/internal/backup"
+	"github.com/astronaut808/awg-forge/internal/buildinfo"
 	"github.com/astronaut808/awg-forge/internal/config"
 	"github.com/astronaut808/awg-forge/internal/firewall"
 	"github.com/astronaut808/awg-forge/internal/observability"
@@ -104,6 +105,60 @@ func TestWriteCachedJSONRejectsInvalidJSON(t *testing.T) {
 	}
 	if got, want := payload["error"], "failed to encode response"; got != want {
 		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
+
+func TestPublicTunnelOmitsProtocolSecrets(t *testing.T) {
+	tunnel := config.Tunnel{
+		ID:                "tunnel-3",
+		Name:              "awg3",
+		InterfaceName:     "awg3",
+		ProtocolProfileID: "awg_3",
+		ProtocolParams:    config.ProtocolParams{"Jc": "4"},
+		ProtocolSecrets:   config.ProtocolSecrets{HeaderProtectionKey: "must-not-leak"},
+	}
+	payload, err := json.Marshal(publicTunnel(tunnel, app.TunnelStatus{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), "must-not-leak") || strings.Contains(string(payload), "header_protection_key") {
+		t.Fatalf("public tunnel leaked protocol secret: %s", payload)
+	}
+}
+
+func TestPublicStateExposesAWG3OnlyWithLaboratoryRuntime(t *testing.T) {
+	previousRuntime := buildinfo.AWG3Runtime
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
+
+	cfg := config.Config{
+		ConfigDir:         t.TempDir(),
+		ServerHost:        "vpn.example.com",
+		ExternalInterface: "eth0",
+	}
+	w := &web{cfg: cfg, service: app.New(cfg)}
+
+	hasProfile := func(payload map[string]any, profileID string) bool {
+		t.Helper()
+		profiles, ok := payload["profiles"].([]map[string]any)
+		if !ok {
+			t.Fatalf("profiles has type %T", payload["profiles"])
+		}
+		for _, profile := range profiles {
+			if profile["id"] == profileID {
+				return true
+			}
+		}
+		return false
+	}
+
+	buildinfo.AWG3Runtime = "false"
+	if hasProfile(w.publicState(context.Background(), config.State{}), "awg_3") {
+		t.Fatal("stable runtime exposed the AWG 3.x profile")
+	}
+
+	buildinfo.AWG3Runtime = "true"
+	if !hasProfile(w.publicState(context.Background(), config.State{}), "awg_3") {
+		t.Fatal("laboratory runtime did not expose the AWG 3.x profile")
 	}
 }
 
@@ -1029,14 +1084,15 @@ func TestEnableClientRechecksExceededTrafficLimit(t *testing.T) {
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("status = %d body = %s, want %d", rr.Code, rr.Body.String(), http.StatusConflict)
 	}
-	var payload struct {
-		Error string `json:"error"`
-	}
+	var payload apiErrorResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(payload.Error, "traffic limit exceeded") {
 		t.Fatalf("error = %q, want traffic limit reason", payload.Error)
+	}
+	if got, want := payload.Code, "traffic_limit_exceeded"; got != want {
+		t.Fatalf("code = %q, want %q", got, want)
 	}
 	state, err := svc.State()
 	if err != nil {
@@ -1348,6 +1404,202 @@ func TestAmneziaVPNQRSeriesReturnsSingleChunk(t *testing.T) {
 	}
 }
 
+func TestAWG3ClientExportAPIs(t *testing.T) {
+	previousRuntime := buildinfo.AWG3Runtime
+	buildinfo.AWG3Runtime = "true"
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
+
+	cfg := config.Config{
+		ConfigDir:           t.TempDir(),
+		TunnelName:          "awg0",
+		ServerHost:          "vpn.example.com",
+		ListenPort:          51820,
+		WebUIHost:           "127.0.0.1",
+		WebUIPort:           51821,
+		ExternalInterface:   "eth0",
+		IPv4Subnet:          "10.8.0.0/24",
+		DNS:                 "1.1.1.1",
+		AllowedIPs:          "0.0.0.0/0",
+		PersistentKeepalive: 0,
+		MTU:                 1420,
+		ProtocolProfile:     "awg_legacy_1_0",
+	}
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "Phone 3.x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &web{service: svc}
+
+	r := httptest.NewRequest(http.MethodGet, "/api/clients/"+client.ID+"/qr", nil)
+	rw := httptest.NewRecorder()
+	w.clientQRAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("raw QR status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	requireReadableQRCodePNG(t, rw.Body.Bytes())
+
+	r = httptest.NewRequest(http.MethodGet, "/api/clients/"+client.ID+"/amnezia-vpn-qr", nil)
+	rw = httptest.NewRecorder()
+	w.clientAmneziaVPNQRAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("AmneziaVPN QR status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	if got, want := rw.Header().Get("Cache-Control"), "no-store"; got != want {
+		t.Fatalf("AmneziaVPN QR Cache-Control = %q, want %q", got, want)
+	}
+	requireReadableQRCodePNG(t, rw.Body.Bytes())
+
+	r = httptest.NewRequest(http.MethodGet, "/api/clients/"+client.ID+"/amnezia-vpn-qr-series", nil)
+	rw = httptest.NewRecorder()
+	w.clientAmneziaVPNQRSeriesAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("AmneziaVPN QR series status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	var series struct {
+		Chunks int `json:"chunks"`
+	}
+	if err := json.Unmarshal(rw.Body.Bytes(), &series); err != nil {
+		t.Fatal(err)
+	}
+	if series.Chunks != 1 {
+		t.Fatalf("chunks = %d, want 1", series.Chunks)
+	}
+
+	r = httptest.NewRequest(http.MethodPost, "http://127.0.0.1:51821/api/clients/"+client.ID+"/import-key", nil)
+	rw = httptest.NewRecorder()
+	w.clientImportKeyAPI(rw, r, client.ID)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf("vpn import key status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	var importKey struct {
+		Value string `json:"import_key"`
+	}
+	if err := json.Unmarshal(rw.Body.Bytes(), &importKey); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(importKey.Value, "vpn://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(decoded), "HeaderProtectionKey =") {
+		t.Fatal("AWG3 vpn import key is missing HeaderProtectionKey")
+	}
+
+	r = httptest.NewRequest(http.MethodGet, "/clients/config/"+client.ID, nil)
+	rw = httptest.NewRecorder()
+	w.clientConfig(rw, r)
+	if got, want := rw.Code, http.StatusOK; got != want {
+		t.Fatalf(".conf status = %d body = %s, want %d", got, rw.Body.String(), want)
+	}
+	if !strings.Contains(rw.Body.String(), "HeaderProtectionKey =") {
+		t.Fatal("AWG3 .conf response is missing HeaderProtectionKey")
+	}
+}
+
+func TestBuildAmneziaVPNQRPayloadAWG3Shape(t *testing.T) {
+	ctx := amneziaVPNTestAWG3ExportContext(t)
+	payload, err := buildAmneziaVPNQRPayload(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonBytes := decodeAmneziaVPNQRPayload(t, payload).JSONBytes
+	var outer amneziaVPNConfig
+	if err := json.Unmarshal(jsonBytes, &outer); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := outer.Containers[0].AWG.ProtocolVersion, "3.1"; got != want {
+		t.Fatalf("protocol_version = %q, want %q", got, want)
+	}
+	var last map[string]any
+	if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+		t.Fatal(err)
+	}
+	wantFields := map[string]string{
+		"HeaderProtectionKey":    ctx.Tunnel.ProtocolSecrets.HeaderProtectionKey,
+		"ContentPaddingAddition": ctx.Tunnel.ProtocolParams["ContentPaddingAddition"],
+		"RekeyAfterTime":         ctx.Tunnel.ProtocolParams["RekeyAfterTime"],
+		"RekeyTimeout":           ctx.Tunnel.ProtocolParams["RekeyTimeout"],
+		"RejectAfterTime":        ctx.Tunnel.ProtocolParams["RejectAfterTime"],
+		"KeepaliveTimeout":       ctx.Tunnel.ProtocolParams["KeepaliveTimeout"],
+		"MaxHandshakeAttempts":   ctx.Tunnel.ProtocolParams["MaxHandshakeAttempts"],
+		"persistent_keep_alive":  ctx.Tunnel.ProtocolParams["PersistentKeepalive"],
+		"mtu":                    "1280",
+	}
+	for key, want := range wantFields {
+		if got := last[key]; got != want {
+			t.Fatalf("last_config %s = %#v, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{"RandomTrailers", "DisableCookies"} {
+		if _, ok := last[key]; ok {
+			t.Fatalf("disabled toggle %s must be omitted: %#v", key, last)
+		}
+	}
+	if configText, _ := last["config"].(string); !strings.Contains(configText, "HeaderProtectionKey =") || strings.Contains(configText, "RandomTrailers = off") {
+		t.Fatalf("unexpected AWG3 rendered config in last_config:\n%s", configText)
+	}
+
+	for _, tt := range []struct {
+		value string
+		want  string
+	}{
+		{value: "on", want: "on"},
+		{value: " ON ", want: "on"},
+		{value: "off", want: ""},
+		{value: "", want: ""},
+	} {
+		if got := enabledAWGToggle(tt.value); got != tt.want {
+			t.Fatalf("enabledAWGToggle(%q) = %q, want %q", tt.value, got, tt.want)
+		}
+	}
+
+	ctx.Tunnel.ProtocolParams["RandomTrailers"] = "on"
+	ctx.Tunnel.ProtocolParams["DisableCookies"] = "on"
+	jsonBytes, err = buildAmneziaVPNClientConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(jsonBytes, &outer); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"RandomTrailers", "DisableCookies"} {
+		if got, want := last[key], "on"; got != want {
+			t.Fatalf("enabled last_config %s = %#v, want %q", key, got, want)
+		}
+	}
+}
+
+func TestBuildAmneziaVPNQRPayloadAWG3PreservesCustomMTU(t *testing.T) {
+	ctx := amneziaVPNTestAWG3ExportContextWithMTU(t, 1360)
+	payload, err := buildAmneziaVPNQRPayload(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonBytes := decodeAmneziaVPNQRPayload(t, payload).JSONBytes
+	var outer amneziaVPNConfig
+	if err := json.Unmarshal(jsonBytes, &outer); err != nil {
+		t.Fatal(err)
+	}
+	var last amneziaVPNLastConfig
+	if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+		t.Fatal(err)
+	}
+	if last.MTU != "1360" {
+		t.Fatalf("last_config mtu = %q, want 1360", last.MTU)
+	}
+	if !strings.Contains(last.Config, "\nMTU = 1360\n") {
+		t.Fatalf("last_config rendered config does not preserve custom MTU:\n%s", last.Config)
+	}
+}
+
 func TestBuildAmneziaVPNQRPackHeaderAndDecompression(t *testing.T) {
 	original := []byte(`{"description":"phone","hostName":"vpn.example.com"}`)
 	payload, err := buildAmneziaVPNQRPack(original)
@@ -1565,6 +1817,34 @@ func TestBuildAmneziaVPNClientConfigOmitsEmptyOptionalParams(t *testing.T) {
 	}
 }
 
+func TestBuildAmneziaVPNClientConfigDoesNotPromoteLegacyProfileFromExtraAWG3State(t *testing.T) {
+	ctx := amneziaVPNTestExportContext(t)
+	ctx.Tunnel.ProtocolParams["ContentPaddingAddition"] = "10-100"
+	ctx.Tunnel.ProtocolParams["RandomTrailers"] = "on"
+	ctx.Tunnel.ProtocolSecrets.HeaderProtectionKey = "must-not-be-exported"
+
+	jsonBytes, err := buildAmneziaVPNClientConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outer amneziaVPNConfig
+	if err := json.Unmarshal(jsonBytes, &outer); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := outer.Containers[0].AWG.ProtocolVersion, "2"; got != want {
+		t.Fatalf("protocol_version = %q, want %q", got, want)
+	}
+	var last map[string]any
+	if err := json.Unmarshal([]byte(outer.Containers[0].AWG.LastConfig), &last); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"HeaderProtectionKey", "ContentPaddingAddition", "RandomTrailers"} {
+		if _, ok := last[key]; ok {
+			t.Fatalf("AWG 2.0 export contains AWG 3.x field %s: %#v", key, last)
+		}
+	}
+}
+
 type decodedAmneziaVPNPayload struct {
 	JSONBytes []byte
 	JSON      map[string]any
@@ -1641,6 +1921,47 @@ func amneziaVPNTestExportContext(t *testing.T) app.ClientExportContext {
 	}
 	svc := app.New(cfg)
 	client, err := svc.AddClient("Phone QR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := svc.ClientExportContext(client.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx
+}
+
+func amneziaVPNTestAWG3ExportContext(t *testing.T) app.ClientExportContext {
+	return amneziaVPNTestAWG3ExportContextWithMTU(t, 1280)
+}
+
+func amneziaVPNTestAWG3ExportContextWithMTU(t *testing.T, mtu int) app.ClientExportContext {
+	t.Helper()
+	previousRuntime := buildinfo.AWG3Runtime
+	buildinfo.AWG3Runtime = "true"
+	t.Cleanup(func() { buildinfo.AWG3Runtime = previousRuntime })
+
+	cfg := config.Config{
+		ConfigDir:           t.TempDir(),
+		TunnelName:          "awg0",
+		ServerHost:          "vpn.example.com",
+		ListenPort:          51820,
+		WebUIHost:           "127.0.0.1",
+		WebUIPort:           51821,
+		ExternalInterface:   "eth0",
+		IPv4Subnet:          "10.8.0.0/24",
+		DNS:                 "1.1.1.1",
+		AllowedIPs:          "0.0.0.0/0",
+		PersistentKeepalive: 25,
+		MTU:                 mtu,
+		ProtocolProfile:     "awg_legacy_1_0",
+	}
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "Phone 3.x")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,16 +12,18 @@ Self-hosted AmneziaWG control panel for Docker: Go backend, embedded Web UI, and
 - Safe default for the panel: the Web UI listens on `127.0.0.1`, not on the server's public interface.
 - Multiple independent tunnels on one VPS: different profiles, UDP ports, and egress scenarios without manually editing Docker port mappings.
 - Flexible IPv4 egress: a tunnel can exit directly through the server or through Cloudflare WARP.
+- Multiple AmneziaWG generations: stable profiles through 2.0 and a built-in experimental AWG 3.x profile without changing the production default.
 - Management and maintenance in one place: daily actions through the Web UI, diagnostics and automation through the CLI.
 
 ## Supported
 
-- AmneziaWG profiles: Legacy / 1.0, 1.5-oriented profile, and 2.0.
+- Stable AmneziaWG profiles: Legacy / 1.0, 1.5-oriented profile, and 2.0. New installations default to 2.0.
+- AWG 3.x is included in the standard image as an experimental profile with an explicit UI warning. Enable and use it at your own risk; AmneziaWG 2.0 remains the production default. Available exports are `.conf`, AmneziaWG QR, structured AmneziaVPN QR for version 5.0.1.5+, and `vpn://`; `.conf` remains the stable fallback.
 - Tunnels: separate profiles, UDP ports, subnets, endpoint settings, and IPv4 egress.
 - IPv6 egress is not supported yet; generated client configs intentionally use `AllowedIPs = 0.0.0.0/0` without `::/0`.
 - Egress: `Server WAN` or Cloudflare WARP per tunnel.
 - Web UI TLS: loopback HTTP, reverse proxy, manual certificates, or managed ACME for one public domain or short-lived public IP certificate.
-- Clients: create, download `.conf`, AmneziaWG QR, AmneziaVPN QR, `vpn://` key, enable/disable, expiration, delete.
+- Clients: create, enable/disable, expiration, delete, and profile-dependent import through `.conf`, AmneziaWG QR, AmneziaVPN QR, or `vpn://`.
 - Diagnostics: Doctor, firewall repair, client status, last seen, received/sent counters.
 - Maintenance Center: Doctor with contextual firewall repair, WARP, backup/restore verification, traffic, audit log, and support diagnostics.
 
@@ -77,7 +79,7 @@ docker compose run --rm --no-deps awg-forge db migrate
 docker compose up -d
 ```
 
-Replace the example host, interface, port, and subnet before running `init`. They create the first persistent tunnel in `data/state.json`; changing legacy tunnel variables in `.env` afterwards does not update it.
+Replace the example host, interface, port, and subnet before running `init`. Also set `EXTERNAL_INTERFACE` in `.env` to the host's WAN interface, matching `--external-interface`; the running service uses `.env` for this setting. The command creates the first persistent tunnel in `data/state.json`; changing legacy tunnel variables in `.env` afterwards does not update it.
 
 Docker host networking is the recommended production mode. It lets tunnels created in the UI use different UDP ports without editing Docker port mappings.
 
@@ -96,7 +98,7 @@ WARP can be selected while creating a tunnel or enabled later from `Tunnel setti
 ## Startup Check
 
 1. Create a client in the UI.
-2. Open the client's `Config` and import through AmneziaVPN QR or a downloaded `.conf`.
+2. Open the client's `Config` and use one of the offered import methods. For AWG 3.x, use AmneziaVPN 5.0.1.5+ and fall back to `.conf` if a platform does not accept QR or `vpn://` import.
 3. Check IPv4 egress:
 
 ```bash
@@ -139,6 +141,8 @@ Backup/restore, firewall repair, support bundle, and audit log are available fro
 - [AmneziaWG updates](docs/en/updates.md)
 - [Development](docs/en/development.md)
 - [Security](docs/en/security.md)
+- [Browser control API contract](docs/en/api.md)
+- [Profile and compatibility matrix](docs/en/protocol-matrix.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development

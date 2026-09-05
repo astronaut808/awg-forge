@@ -10,4 +10,6 @@ dist
 *.zip
 *.test
 coverage.out
+test-results
+playwright-report
 .DS_Store
