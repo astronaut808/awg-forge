@@ -1523,6 +1523,144 @@ func TestInitRepairsOutOfRangePersistedProtocolParams(t *testing.T) {
 	}
 }
 
+func TestInitRepairsAWG3ProtocolParamsWithoutRotatingSecret(t *testing.T) {
+	enableAWG3RuntimeForTest(t)
+	cfg := testConfig(t)
+	svc := app.New(cfg)
+	tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := svc.AddClientToTunnel(tunnel.ID, "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := svc.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, ok := testTunnelIndexByID(state, tunnel.ID)
+	if !ok {
+		t.Fatal("AWG3 tunnel not found")
+	}
+	originalKey := state.Tunnels[idx].ProtocolSecrets.HeaderProtectionKey
+	originalRevision := state.Tunnels[idx].ConfigRevision
+	delete(state.Tunnels[idx].ProtocolParams, "RandomTrailers")
+	delete(state.Tunnels[idx].ProtocolParams, "DisableCookies")
+	if err := storage.New(cfg.ConfigDir).Save(state); err != nil {
+		t.Fatal(err)
+	}
+
+	repaired, err := app.New(cfg).Init()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.New(cfg).RenderAll(); err != nil {
+		t.Fatalf("RenderAll after AWG3 protocol repair: %v", err)
+	}
+	idx, ok = testTunnelIndexByID(repaired, tunnel.ID)
+	if !ok {
+		t.Fatal("repaired AWG3 tunnel not found")
+	}
+	repairedTunnel := repaired.Tunnels[idx]
+	if got := repairedTunnel.ProtocolSecrets.HeaderProtectionKey; got != originalKey {
+		t.Fatal("AWG3 protocol repair rotated HeaderProtectionKey")
+	}
+	if repairedTunnel.ProtocolParams["RandomTrailers"] != "off" || repairedTunnel.ProtocolParams["DisableCookies"] != "off" {
+		t.Fatalf("AWG3 protocol toggles were not repaired to safe defaults: %#v", repairedTunnel.ProtocolParams)
+	}
+	if repairedTunnel.ConfigRevision != originalRevision+1 {
+		t.Fatalf("config revision = %d, want %d", repairedTunnel.ConfigRevision, originalRevision+1)
+	}
+	if len(repairedTunnel.Clients) != 1 || repairedTunnel.Clients[0].ID != client.ID {
+		t.Fatal("AWG3 protocol repair changed the tunnel clients")
+	}
+	if repairedTunnel.Clients[0].ConfigRevision >= repairedTunnel.ConfigRevision {
+		t.Fatal("AWG3 protocol repair did not mark the existing client config stale")
+	}
+	if profile, ok := protocol.ByID("awg_3"); !ok {
+		t.Fatal("AWG3 profile not found")
+	} else if err := profile.Validate(repairedTunnel.ProtocolParams); err != nil {
+		t.Fatalf("repaired AWG3 protocol params are invalid: %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(cfg.ConfigDir, "backups", "state-*-repair-protocol-params.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("repair backups = %d, want 1", len(matches))
+	}
+}
+
+func TestInitRejectsInvalidAWG3ProtocolSecretWithoutMutation(t *testing.T) {
+	for _, invalidateParams := range []bool{false, true} {
+		name := "valid params"
+		if invalidateParams {
+			name = "invalid params"
+		}
+		t.Run(name, func(t *testing.T) {
+			const invalidSecret = "secret-value-must-not-appear-in-errors"
+			enableAWG3RuntimeForTest(t)
+			cfg := testConfig(t)
+			svc := app.New(cfg)
+			tunnel, err := svc.CreateTunnel("awg_3", "awg3", "10.30.0.0/24", 51840)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state, err := svc.State()
+			if err != nil {
+				t.Fatal(err)
+			}
+			idx, ok := testTunnelIndexByID(state, tunnel.ID)
+			if !ok {
+				t.Fatal("AWG3 tunnel not found")
+			}
+			state.Tunnels[idx].ProtocolSecrets.HeaderProtectionKey = invalidSecret
+			if invalidateParams {
+				delete(state.Tunnels[idx].ProtocolParams, "RandomTrailers")
+			}
+			persistedParams := maps.Clone(state.Tunnels[idx].ProtocolParams)
+			persistedRevision := state.Tunnels[idx].ConfigRevision
+			if err := storage.New(cfg.ConfigDir).Save(state); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = app.New(cfg).Init()
+			if err == nil || !strings.Contains(err.Error(), "invalid protocol secrets for \"awg_3\"") {
+				t.Fatalf("Init error = %v, want invalid AWG3 protocol secret rejection", err)
+			}
+			if strings.Contains(err.Error(), invalidSecret) {
+				t.Fatal("Init error exposed the invalid protocol secret")
+			}
+			persisted, err := storage.New(cfg.ConfigDir).Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			idx, ok = testTunnelIndexByID(persisted, tunnel.ID)
+			if !ok {
+				t.Fatal("persisted AWG3 tunnel not found")
+			}
+			persistedTunnel := persisted.Tunnels[idx]
+			if persistedTunnel.ProtocolSecrets.HeaderProtectionKey != invalidSecret {
+				t.Fatal("invalid HeaderProtectionKey was silently replaced")
+			}
+			if !maps.Equal(persistedTunnel.ProtocolParams, persistedParams) {
+				t.Fatal("protocol params changed after secret validation failure")
+			}
+			if persistedTunnel.ConfigRevision != persistedRevision {
+				t.Fatalf("config revision = %d, want unchanged %d", persistedTunnel.ConfigRevision, persistedRevision)
+			}
+			matches, err := filepath.Glob(filepath.Join(cfg.ConfigDir, "backups", "state-*-repair-protocol-params.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(matches) != 0 {
+				t.Fatalf("repair backups = %d, want 0 after rejected secret", len(matches))
+			}
+		})
+	}
+}
+
 func TestProtocolParamsRejectWeakOrInvalidLegacyCombinations(t *testing.T) {
 	p := protocol.Legacy10{}
 	params, err := p.GenerateDefaults()
@@ -1608,4 +1746,13 @@ func enableAWG3RuntimeForTest(t *testing.T) {
 	previous := buildinfo.AWG3Runtime
 	buildinfo.AWG3Runtime = "true"
 	t.Cleanup(func() { buildinfo.AWG3Runtime = previous })
+}
+
+func testTunnelIndexByID(state config.State, tunnelID string) (int, bool) {
+	for idx := range state.Tunnels {
+		if state.Tunnels[idx].ID == tunnelID {
+			return idx, true
+		}
+	}
+	return 0, false
 }

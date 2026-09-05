@@ -395,37 +395,32 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 	state.Tunnels[idx] = applyTunnelSettings(old, settings)
 	next := state.Tunnels[idx]
 	warpRoutesNeedReconcile := warpRoutesChanged(previousState, state)
+	removeOldRuntime := old.Enabled && (!next.Enabled || tunnelRuntimeRestartRequired(old, next))
+	firewallChanged := firewallRelevantChanged(old, next)
+	var rollbackRenderedDeletes []string
+	if old.InterfaceName != next.InterfaceName {
+		rollbackRenderedDeletes = []string{next.InterfaceName}
+	}
 	state.UpdatedAt = next.UpdatedAt
 	if err := s.store.Save(state); err != nil {
 		return config.Tunnel{}, err
 	}
-	restartRuntime := old.Enabled && next.Enabled && tunnelRuntimeRestartRequired(old, next)
-	disableRuntime := old.Enabled && !next.Enabled
-	firewallChanged := firewallRelevantChanged(old, next)
 	if s.cfg.ApplyConfig && firewallChanged {
 		oldRuntimePath, err := runtimeConfigPath(old.InterfaceName)
 		if err != nil {
 			return config.Tunnel{}, err
 		}
 		if err := s.migrateLegacyFirewallRules(old, oldRuntimePath); err != nil {
-			deleteRendered := []string{}
-			if old.InterfaceName != settings.Name {
-				deleteRendered = append(deleteRendered, settings.Name)
-			}
-			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, deleteRendered...); rollbackErr != nil {
+			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, rollbackRenderedDeletes...); rollbackErr != nil {
 				return config.Tunnel{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 			}
 			s.log("error", "tunnel.settings.failed", "legacy firewall migration failed during tunnel settings update", tunnelAuditFields(old), err)
 			return config.Tunnel{}, err
 		}
 	}
-	if s.cfg.ApplyConfig && (restartRuntime || disableRuntime) {
+	if s.cfg.ApplyConfig && removeOldRuntime {
 		if err := s.runtimeOps.removeTunnel(old); err != nil {
-			deleteRendered := []string{}
-			if old.InterfaceName != settings.Name {
-				deleteRendered = append(deleteRendered, settings.Name)
-			}
-			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, deleteRendered...); rollbackErr != nil {
+			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, rollbackRenderedDeletes...); rollbackErr != nil {
 				return config.Tunnel{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 			}
 			s.log("error", "tunnel.settings.failed", "tunnel runtime removal failed during tunnel settings update", tunnelAuditFields(old), err)
@@ -433,26 +428,18 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 		}
 	} else if s.cfg.ApplyConfig && firewallChanged {
 		if err := s.cleanupFirewallRules(old); err != nil {
-			deleteRendered := []string{}
-			if old.InterfaceName != settings.Name {
-				deleteRendered = append(deleteRendered, settings.Name)
-			}
-			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, deleteRendered...); rollbackErr != nil {
+			if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, rollbackRenderedDeletes...); rollbackErr != nil {
 				return config.Tunnel{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 			}
 			s.log("error", "tunnel.settings.failed", "tunnel settings firewall cleanup failed", tunnelAuditFields(old), err)
 			return config.Tunnel{}, err
 		}
 	}
-	if old.InterfaceName != settings.Name {
+	if old.InterfaceName != next.InterfaceName {
 		_ = s.store.DeleteRenderedTunnel(old.InterfaceName)
 	}
 	if err := s.renderTunnelLocked(state.Tunnels[idx].ID, true); err != nil {
-		deleteRendered := []string{}
-		if old.InterfaceName != settings.Name {
-			deleteRendered = append(deleteRendered, settings.Name)
-		}
-		if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, deleteRendered...); rollbackErr != nil {
+		if rollbackErr := s.rollbackRuntimeState(previousState, old.ID, rollbackRenderedDeletes...); rollbackErr != nil {
 			return config.Tunnel{}, errors.Join(err, fmt.Errorf("rollback failed: %w", rollbackErr))
 		}
 		s.log("error", "tunnel.settings.failed", "tunnel settings update failed", tunnelAuditFields(state.Tunnels[idx]), err)
@@ -461,11 +448,7 @@ func (s *Service) updateTunnelSettings(tunnelID string, update TunnelSettingsUpd
 	if s.cfg.ApplyConfig && warpRoutesNeedReconcile {
 		if err := s.reconcileWarpRuntimePersisted(); err != nil {
 			applyErr := &ApplyError{Err: err}
-			deleteRendered := []string{}
-			if old.InterfaceName != settings.Name {
-				deleteRendered = append(deleteRendered, settings.Name)
-			}
-			if rollbackErr := s.rollbackRuntimeAndWarp(previousState, old.ID, deleteRendered...); rollbackErr != nil {
+			if rollbackErr := s.rollbackRuntimeAndWarp(previousState, old.ID, rollbackRenderedDeletes...); rollbackErr != nil {
 				return config.Tunnel{}, errors.Join(applyErr, fmt.Errorf("rollback failed: %w", rollbackErr))
 			}
 			s.log("error", "tunnel.settings.failed", "WARP runtime reconciliation failed after tunnel settings update", tunnelAuditFields(state.Tunnels[idx]), err)
