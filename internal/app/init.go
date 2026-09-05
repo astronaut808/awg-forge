@@ -271,10 +271,10 @@ func (s *Service) repairProtocolParams(tunnel *config.Tunnel) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("unsupported protocol profile %q", tunnel.ProtocolProfileID)
 	}
-	if err := p.Validate(tunnel.ProtocolParams); err == nil && protocol.ValidateSecrets(p, tunnel.ProtocolSecrets) == nil {
-		return false, nil
+	if err := protocol.ValidateSecrets(p, tunnel.ProtocolSecrets); err != nil {
+		return false, fmt.Errorf("invalid protocol secrets for %q: %w", tunnel.ProtocolProfileID, err)
 	}
-	if _, hasSecrets := p.(protocol.SecretGeneratingProfile); hasSecrets {
+	if err := p.Validate(tunnel.ProtocolParams); err == nil {
 		return false, nil
 	}
 	params, err := p.GenerateDefaults()

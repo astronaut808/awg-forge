@@ -22,6 +22,7 @@
 
 ### Fixed
 
+- Repair older AWG 3.x protocol parameters during startup without rotating the existing `HeaderProtectionKey`; reject invalid protocol secrets explicitly and leave persisted state unchanged.
 - Recreate an enabled tunnel when its interface name, IPv4 subnet, or MTU changes so Linux link settings match persisted state, with runtime rollback when stopping or applying the replacement fails.
 - Align the OpenAPI client-expiration schema with the existing API by accepting either an empty value or an RFC 3339 timestamp, and validate both forms in the contract gate.
 - Correct the protocol matrix to distinguish active AWG 3.x client `I1-I5` settings from the comments retained in server configurations.
